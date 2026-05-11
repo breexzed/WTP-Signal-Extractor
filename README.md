@@ -1,503 +1,566 @@
 # WTP Signal Extractor
 
-This project is evolving from a single-run transcript analysis CLI into a full market-intelligence research pipeline.
+WTP Signal Extractor is a Gemini-first Python CLI that analyzes a single transcript source at a time and produces:
+- a human-readable report for terminal review
+- a canonical JSON artifact for downstream systems
 
-Today, the app can:
-- accept a YouTube URL or pasted transcript text
-- fetch transcript text when available
-- run a two-pass analysis
-- normalize the final output into a stable report format
+The repo is no longer just a formatting wrapper around a transcript prompt.
+It now acts as the structured evaluator and diagnostics half of a future closed-loop system with `source-garden-intelligence`.
 
-The intended end state is bigger:
-- accept many URLs in one run
-- process them as a single research session
-- extract structured intelligence per source
-- produce one consolidated report across all sources
-- support Gemini by default, while remaining portable to any OpenAI-compatible model provider later
+## What The Repo Does Today
 
-## Product Direction
+The current implementation supports:
+- YouTube URL input
+- pasted transcript input
+- transcript fetching through `youtube-transcript-api`
+- Gemini analysis using a structured multi-pass prompt
+- Windows-safe terminal rendering
+- text artifact persistence
+- canonical JSON artifact persistence
+- parse warnings and raw-output preservation
+- Source Garden-compatible diagnostics and aggregation stubs
 
-The current CLI is useful as a tool.
-The full version should behave like a pipeline.
+The current unit of work is still a single source run.
+This repo does **not** yet implement multi-URL batch ingestion or a full research-session CLI.
 
-That means the unit of work should no longer be "one video -> one output".
-It should become:
+## Compatibility Goal
 
-`one research session -> many sources -> one structured intelligence package`
+This repo is designed to interoperate later with `source-garden-intelligence` without creating a hardcoded cross-repo dependency.
 
-In practice, that means:
-- a user submits a list of URLs or a session manifest
-- the system fetches transcripts for all valid sources
-- each source is analyzed independently first
-- the individual results are stored as structured artifacts
-- a second pass consolidates findings across all sources
-- the session ends with one final report that captures patterns, not just isolated observations
+The intended relationship is:
+- Source Garden decides where to look
+- WTP decides what was actually found and what to do next
 
-This is the difference between a prompt wrapper and a repeatable intelligence pipeline.
+That means WTP now emits structured diagnostics that can eventually help Source Garden answer:
+- which registers underperformed
+- which gatekeeper types appeared
+- which source types produced the strongest signals
+- what search language was too generic
+- what named entities started recurring
 
-## Core Principle
+## Current Status
 
-Do not solve multi-source analysis by concatenating many raw transcripts into one giant prompt.
+This repo is currently:
+- a working CLI
+- a per-source structured extractor
+- a diagnostic producer for future loop feedback
+- a JSON-first artifact generator
 
-That approach breaks down quickly:
-- context windows get consumed by low-value raw text
-- failures become all-or-nothing
-- retries get expensive
-- source attribution becomes weak
-- deduplication becomes sloppy
-- provider portability becomes harder
+This repo is **not yet**:
+- a multi-source batch pipeline
+- a session-context collection CLI like Source Garden
+- a provider-agnostic model layer
+- a fully schema-enforced LLM output system
 
-The correct architecture is:
+## Architecture
 
-`fetch -> normalize -> extract per source -> validate -> aggregate -> render`
+Current file responsibilities:
 
-## Analysis Model
+- [main.py](C:/Users/Owl/playbook/wtp-signal-extractor/main.py): CLI orchestration, input handling, Gemini call, progress spinner, failure handling, artifact persistence
+- [prompt.py](C:/Users/Owl/playbook/wtp-signal-extractor/prompt.py): system prompt for the two-pass extraction plus diagnostics sections
+- [schemas.py](C:/Users/Owl/playbook/wtp-signal-extractor/schemas.py): canonical result shape and allowed vocabularies
+- [extract.py](C:/Users/Owl/playbook/wtp-signal-extractor/extract.py): raw model-output parsing into structured sections
+- [diagnostics.py](C:/Users/Owl/playbook/wtp-signal-extractor/diagnostics.py): diagnostic derivation, normalization, register alignment, entity/gatekeeper heuristics
+- [render.py](C:/Users/Owl/playbook/wtp-signal-extractor/render.py): human-readable report rendering
+- [session_store.py](C:/Users/Owl/playbook/wtp-signal-extractor/session_store.py): text/JSON artifact writing
+- [aggregate.py](C:/Users/Owl/playbook/wtp-signal-extractor/aggregate.py): aggregate rollups across one or more source results
+- [test_main.py](C:/Users/Owl/playbook/wtp-signal-extractor/test_main.py): parser, diagnostics, persistence, mocked CLI, and aggregation tests
 
-The system currently runs one model with a structured two-pass prompt:
+## Runtime Flow
 
-1. `PASS 1: WILLINGNESS-TO-PAY SIGNALS`
-2. `PASS 2: FGP PIPELINE INTELLIGENCE`
-3. `COMBINED INTELLIGENCE SUMMARY`
+Each run currently follows this flow:
 
-That shape should remain.
-What should change is the execution model:
+1. Accept one source:
+- YouTube URL
+- or pasted transcript text
 
-- run the full two-pass extraction per source first
-- save the output as structured data
-- then run a separate session-level synthesis pass across the extracted objects
+2. Build source metadata:
+- `source_id`
+- URL/video information if present
+- transcript status
+- provenance placeholders
 
-This keeps source-level evidence intact while still enabling portfolio-level conclusions.
+3. Run Gemini against the structured market-intelligence prompt.
 
-## What The Full Version Should Do
+4. Parse the model output into:
+- Pass 1
+- Pass 2
+- combined summary
+- diagnostics hints
 
-The pipeline version should support:
-- `--url <url>` for quick single-source runs
-- `--urls <url1> <url2> <url3>` for small batches
-- `--urls-file urls.txt` for research sessions
-- `--session session.json` for richer metadata-driven runs
+5. Derive structured diagnostics:
+- named entities
+- gatekeepers
+- phase fit
+- register alignment
+- search-language feedback
+- recommended next phase
 
-Each session should:
-- create a session ID
-- deduplicate URLs
-- normalize and validate inputs
-- fetch transcripts concurrently with bounded parallelism
-- save raw transcript artifacts
-- analyze each transcript into validated structured data
-- aggregate repeated patterns across all sources
-- produce a consolidated markdown report and machine-readable JSON
+6. Render a readable text report.
 
-## Why Structured Extraction Matters
+7. Persist both:
+- `.txt`
+- `.json`
 
-If this is done right, the internal source of truth should not be the rendered markdown.
-It should be structured data.
+## Input Modes
 
-The markdown report is only the final presentation layer.
+### YouTube URL
 
-The internal contract should be JSON-like objects such as:
-- per-source metadata
-- transcript metadata
-- pass 1 signals
-- pass 2 signals
-- combined source summary
-- session-level rollups
+The CLI accepts one YouTube URL, extracts the video ID, fetches the transcript, and analyzes it.
 
-That enables:
-- aggregation
-- filtering
-- deduplication
-- export
-- provider swapping
-- testability
-- future UI or API surfaces
+Supported URL forms include:
+- `https://www.youtube.com/watch?v=...`
+- `https://youtu.be/...`
 
-## Recommended Internal Data Shape
+If transcript fetching fails:
+- the CLI still produces a visible failure result
+- the failure is persisted as a structured artifact
+- the run does not fail silently
 
-Each source result should eventually look conceptually like this:
+### Pasted Transcript
+
+The CLI accepts manual transcript paste input line-by-line until the user enters `End`.
+
+The pasted flow preserves the same analysis and artifact-writing behavior as the YouTube path.
+
+## Prompt Shape
+
+The current prompt preserves these major sections:
+
+- `PASS 1: WILLINGNESS-TO-PAY SIGNALS`
+- `PASS 2: FGP PIPELINE INTELLIGENCE`
+- `COMBINED INTELLIGENCE SUMMARY`
+
+It also asks the model for structured diagnostics support blocks:
+- source diagnostics
+- named entities
+- gatekeeper objects
+- register alignment
+- search language feedback
+- diagnostic notes
+
+The parser does **not** trust the model completely.
+It treats the model output as recoverable-but-fallible input.
+
+## Canonical Output Contract
+
+Each run produces a canonical per-source JSON object with this top-level shape:
 
 ```json
 {
-  "source": {
-    "url": "https://youtube.com/...",
-    "video_id": "abc123",
-    "title": "Optional later",
-    "transcript_status": "fetched"
-  },
-  "pass1": {
-    "behavior_signals": [],
-    "opinion_signals": [],
-    "summary": {
-      "total_high_signal_moments": 0,
-      "dominant_pain_category": "",
-      "confidence_level": ""
-    }
-  },
-  "pass2": {
-    "cascade_indicators": [],
-    "gatekeeper_mentions": [],
-    "position_intelligence": [],
-    "subniche_culture_signals": [],
-    "summary": {
-      "strongest_cascade_found": "",
-      "highest_signal_gatekeeper_mention": "",
-      "position_intelligence_confidence": "",
-      "recommended_next_action": ""
-    }
-  },
-  "combined_summary": {
-    "top_3_actionable_signals": [],
-    "hypothesis_worth_testing": ""
-  }
+  "source": {},
+  "provenance": {},
+  "pass1": {},
+  "pass2": {},
+  "diagnostics": {},
+  "combined_summary": {},
+  "parse_warnings": [],
+  "raw_output": "..."
 }
 ```
 
-The session-level aggregate should then combine many of these into:
-- repeated WTP themes
-- repeated gatekeepers
-- strongest cascades across the session
-- strongest subniche identity patterns
-- top actionable signals across all sources
-- one or more testable hypotheses
-
-## Architecture Direction
-
-The current code is intentionally small.
-The future version should be split by responsibility.
-
-Recommended layout:
-
-```text
-wtp-signal-extractor/
-  main.py
-  prompt.py
-  pyproject.toml
-  README.md
-  pipeline/
-    input.py
-    transcripts.py
-    schemas.py
-    extract.py
-    aggregate.py
-    render.py
-    session_store.py
-  providers/
-    base.py
-    gemini.py
-    openai_compatible.py
-  reports/
-    <session-id>/
-      session_report.json
-      session_report.md
-      sources/
-        <source-id>.json
-        <source-id>.txt
-```
-
-Suggested responsibility split:
-- `pipeline/input.py`: parse URLs, files, manifests, dedupe, validate
-- `pipeline/transcripts.py`: fetch transcript text and normalize transcript artifacts
-- `pipeline/schemas.py`: define structured contracts and validation
-- `pipeline/extract.py`: run model extraction per source
-- `pipeline/aggregate.py`: consolidate many extracted results into one session view
-- `pipeline/render.py`: render markdown, console output, and any future export formats
-- `pipeline/session_store.py`: persist artifacts and session metadata
-- `providers/base.py`: provider interface
-- `providers/gemini.py`: Gemini-specific implementation
-- `providers/openai_compatible.py`: generic OpenAI-compatible implementation
-
-## Provider Strategy
-
-The system is Gemini-centric today, but it should not stay Gemini-coupled at the architecture level.
-
-Gemini can remain:
-- the default provider
-- the first-class tested provider
-- the cheapest/fastest starting path
-
-But model access should be abstracted behind one provider interface.
-
-Recommended idea:
-
-```python
-class LLMProvider:
-    def extract_source(self, transcript: str, prompt: str) -> dict: ...
-    def synthesize_session(self, source_results: list[dict], prompt: str) -> dict: ...
-```
-
-That way:
-- Gemini works through one adapter
-- OpenAI-compatible providers work through another adapter
-- the pipeline never cares which SDK is underneath
-
-This is important if you want future support for:
-- OpenAI
-- OpenRouter
-- Together
-- Groq
-- local OpenAI-compatible gateways
-- LiteLLM-backed routing
-
-## OpenAI-Compatible Future
-
-If you want this done right, do not treat "OpenAI-compatible" as a future hack.
-Design for it now.
-
-The pipeline should support config like:
-- `LLM_PROVIDER=gemini`
-- `LLM_PROVIDER=openai_compatible`
-- `LLM_MODEL_EXTRACTION=...`
-- `LLM_MODEL_AGGREGATION=...`
-- `LLM_API_KEY=...`
-- `LLM_BASE_URL=...`
-
-Then the provider implementation decides how to call the model.
-
-This makes the rest of the codebase provider-agnostic.
+### `source`
 
-## Gemini Guidance
+Includes:
+- `source_id`
+- `url`
+- `video_id`
+- `input_type`
+- `transcript_status`
+- `source_type`
+- `speaker_type`
 
-Gemini is a reasonable default for this project.
+Allowed `input_type` values:
+- `youtube_url`
+- `pasted_transcript`
 
-Why it fits:
-- fast enough for transcript extraction workloads
-- good price/performance for repeated structured analysis
-- strong enough for synthesis if prompts are tight
-- easy to prototype through Google AI Studio
+Allowed `transcript_status` values:
+- `fetched`
+- `pasted`
+- `failed`
 
-### Can the Gemini free model work?
+Allowed `source_type` values:
+- `operator_interview`
+- `panel`
+- `vendor_demo`
+- `trade_discussion`
+- `unknown`
 
-For prototyping and early sessions: yes.
+Allowed `speaker_type` values:
+- `operator`
+- `intermediary`
+- `mixed`
+- `unknown`
 
-For a serious research pipeline: only for a while.
+### `provenance`
 
-Free-tier Gemini is useful for:
-- local experiments
-- prompt tuning
-- testing source-level extraction
-- small batches
+Includes:
+- `origin_cluster_id`
+- `origin_register`
+- `query_used`
 
-Free-tier Gemini is not a great long-term production assumption for:
-- large research sessions
-- reliable batch throughput
-- predictable scaling
-- privacy-sensitive workflows
+These are placeholders today and are usually `null` in the CLI.
+They exist so Source Garden can supply them later without redesigning the contract.
+
+### `pass1`
 
-Practical recommendation:
-- start with Gemini Flash for source extraction
-- consider a stronger model for session synthesis if needed
-- do not design the system around free-tier assumptions
-
-If this becomes a real workflow, assume you will eventually need:
-- paid usage
-- higher rate limits
-- better operational control
-- batching or caching features
-
-## Model Strategy
-
-Do not force one model to do everything.
-
-The ideal setup uses two roles:
-
-1. Extraction model
-- cheap
-- fast
-- consistent
-- used many times per session
-
-2. Aggregation model
-- stronger reasoning
-- used once or a few times per session
-- consolidates repeated patterns across sources
-
-Good strategy:
-- source extraction: cheaper model
-- session synthesis: stronger model
-
-This keeps session costs sane while improving overall output quality.
-
-## Prompting Strategy
-
-The current project uses a strong prompt and a normalization layer.
-That is good for now.
-
-But the perfect version should move toward:
-- structured extraction prompts
-- schema-validated outputs
-- strict render-time formatting
-
-The model should ideally return structured objects, not freeform markdown.
-
-Then the app can:
-- validate fields
-- fill missing defaults
-- drop malformed sections
-- render perfectly every time
-
-This is much more reliable than trusting the model to format markdown exactly forever.
-
-## Output Strategy
-
-Every session should produce both:
-- a machine-readable artifact
-- a human-readable artifact
-
-Recommended outputs:
-- `session_report.json`
-- `session_report.md`
-- optional per-source JSON and transcript snapshots
-
-The JSON should be the canonical source of truth.
-The markdown should be a rendered view of that JSON.
-
-## Batch Processing Principles
-
-When adding multi-URL support, do it with care:
-
-- validate all inputs before expensive model calls
-- deduplicate URLs before fetching transcripts
-- keep per-source failures isolated
-- never let one transcript failure kill the whole session
-- use bounded concurrency
-- preserve source attribution for every extracted signal
-- make retries source-specific
-- cache transcript fetches where possible
-- store intermediate artifacts for debugging
-
-If one out of ten transcripts fails, the session should still finish and report:
-- what succeeded
-- what failed
-- why it failed
-
-## Aggregation Principles
-
-The aggregation pass should not simply summarize everything vaguely.
-It should look for:
-- repeated pain categories
-- repeated gatekeepers
-- repeated downstream failures
-- repeated differentiation claims
-- contradictions between sources
-- strongest signals by severity and recurrence
-
-The goal is not only "what was said".
-The goal is:
-- what repeated
-- what matters most
-- what appears structurally important
-- what suggests a product or distribution move
-
-## Reliability Requirements
-
-If this is to be done right, the system should be built with these quality rules:
-
-- preserve exact quote attribution
-- never merge sources without keeping source references
-- store raw transcripts separately from extracted findings
-- validate model outputs before aggregation
-- normalize all final reports through one renderer
-- treat the JSON artifact as canonical
-- allow rerunning only failed sources
-- keep model provider logic isolated from pipeline logic
-- make output reproducible enough for review
-
-## Failure Handling
-
-The pipeline should classify failures explicitly:
-- invalid URL
-- transcript unavailable
-- transcript fetch blocked
-- provider rate limit
-- provider timeout
-- malformed model output
-- aggregation failure
-
-This should appear in session output rather than failing silently.
-
-## Security And Secrets
-
-Do not commit secrets.
-
-The repo should continue to ignore:
-- `.env`
-- `.env.*`
-- `.venv/`
-- generated caches
-
-Provider credentials should always come from environment variables.
-
-## Current State Of This Repo
-
-Right now the repo provides:
-- a working CLI
-- transcript fetching
-- Gemini-based two-pass analysis
-- output normalization
-- Windows-safe console rendering
-- tests for core formatting and flow
-
-This is a strong prototype foundation.
-It is not yet the final pipeline architecture.
-
-## Recommended Implementation Order
-
-If building this properly from here, the order should be:
-
-1. Add session-based input
-- support many URLs in one run
-- accept file-based input
-- create a session ID
-
-2. Introduce structured source result schemas
-- stop treating markdown as the internal source of truth
-- store validated per-source objects
-
-3. Split provider code from pipeline code
-- keep Gemini as default
-- add an OpenAI-compatible provider interface
-
-4. Add session aggregation
-- aggregate structured results, not raw transcripts
-
-5. Persist artifacts
-- save source-level and session-level JSON
-- render session markdown from JSON
-
-6. Add retries, partial failure handling, and bounded concurrency
-
-7. Add alternative providers
-- OpenAI-compatible path first
-- optional routing layer later
-
-## What "Done Right" Looks Like
-
-If this project is built perfectly, it should feel like this:
-
-- one command starts a whole research session
-- every source is traceable
-- the model can change without rewriting the pipeline
-- the outputs are structured enough for automation
-- the markdown is clean enough for human review
-- failures are isolated, visible, and recoverable
-- aggregation surfaces what is repeated and strategic, not just what is interesting
-
-That is the target.
+Includes:
+- `behavior_signals`
+- `opinion_signals`
+- `summary`
+
+This is the WTP-focused half of the output.
+
+### `pass2`
+
+Includes:
+- `cascade_indicators`
+- `gatekeeper_mentions`
+- `position_intelligence`
+- `subniche_culture_signals`
+- `summary`
+
+This is the FGP pipeline-intelligence half of the output.
+
+### `diagnostics`
+
+Includes:
+- `phase_fit`
+- `signal_density`
+- `register_alignment`
+- `named_entities`
+- `gatekeepers`
+- `search_language_feedback`
+- `recommended_next_phase`
+- `diagnostic_notes`
+
+### `combined_summary`
+
+Includes:
+- `top_3_actionable_signals`
+- `hypothesis_worth_testing`
+
+### `parse_warnings`
+
+Explicitly records parser drift or structural recovery concerns.
+
+### `raw_output`
+
+Preserves the original model output for debugging and auditability.
+
+## Diagnostics Behavior
+
+The diagnostics layer is intentionally conservative.
+
+It prefers:
+- explicit transcript evidence
+- explicit model-provided support
+- fallbacks only when needed
+
+It avoids:
+- inventing named entities
+- inventing register names
+- pretending uncertainty does not exist
+
+### Phase Fit
+
+`phase_fit` can be:
+- `0`
+- `1`
+- `2`
+- `3`
+- `3.5`
+- `mixed`
+- `unknown`
+
+It is inferred from the parsed content when the model does not provide a clean answer.
+
+### Signal Density
+
+`signal_density` can be:
+- `low`
+- `medium`
+- `high`
+
+It is derived from the amount of usable structured signal recovered from the source.
+
+### Named Entities
+
+Each named entity object includes:
+- `name`
+- `entity_kind`
+- `relationship`
+- `supporting_quote`
+- `confidence`
+
+Allowed `entity_kind` values:
+- `platform`
+- `software`
+- `institution`
+- `distributor`
+- `person`
+- `certification_body`
+- `other`
+
+Allowed `relationship` values:
+- `dependent`
+- `frustrated`
+- `switching`
+- `praise`
+- `unknown`
+
+If the model does not provide entity objects, some entities can be derived from gatekeeper mentions.
+If evidence is weak, entities should be omitted rather than guessed.
+
+### Gatekeepers
+
+Each gatekeeper object includes:
+- `entity`
+- `dependency_type`
+- `gatekeeper_type`
+- `operator_relationship`
+- `supporting_quote`
+- `confidence`
+
+Allowed `dependency_type` values:
+- `structural_friction`
+- `social_authority`
+- `information_asymmetry`
+- `platform`
+- `unknown`
+
+Allowed `gatekeeper_type` values:
+- `Type1`
+- `Type2`
+- `Type3`
+- `Type4`
+- `unknown`
+
+The type mapping is Source Garden-compatible:
+- `Type1`: owns a process others cannot bypass
+- `Type2`: their word moves the network
+- `Type3`: controls information others need
+- `Type4`: platform controlling access to customers
+
+Allowed `operator_relationship` values:
+- `dependent`
+- `frustrated`
+- `loyal`
+- `switching_away`
+- `unknown`
+
+### Register Alignment
+
+Register alignment uses **only** the Source Garden-compatible register names:
+
+- `operator_vernacular`
+- `industry_professional`
+- `complaint_register`
+- `consequence_register`
+- `intermediary_register`
+- `trade_publication`
+- `job_listing_register`
+- `year_specific`
+- `gatekeeper_self_description`
+
+No new register names are invented.
+
+Each register-alignment object includes:
+- `register`
+- `matched_signals`
+- `strength`
+
+### Search Language Feedback
+
+This object includes:
+- `likely_too_generic`
+- `too_vendor_heavy`
+- `off_phase`
+- `likely_operator_facing`
+- `likely_gatekeeper_facing`
+- `reason`
+
+This is heuristic today.
+It is meant to feed future loop correction, not to act as absolute truth.
+
+## Aggregation
+
+This repo now includes a session-compatible aggregation stub in [aggregate.py](C:/Users/Owl/playbook/wtp-signal-extractor/aggregate.py:1).
+
+It can aggregate one or more source results into:
+- `session_id`
+- `source_count`
+- `register_performance`
+- `gatekeeper_type_distribution`
+- `recurring_entities`
+- `source_type_performance`
+- `query_feedback`
+- `recommended_next_phase`
+- `aggregate_notes`
+
+This is not yet exposed as a multi-source CLI workflow.
+It is currently a programmatic path intended for future integration.
+
+## Artifact Writing
+
+Each run writes:
+- a rendered text report
+- a canonical JSON artifact
+
+Default output directory:
+- `outputs/`
+
+Naming pattern:
+- `wtp-analysis-<timestamp>.txt`
+- `wtp-analysis-<timestamp>.json`
+
+If a session ID is supplied programmatically, it becomes part of the filename.
+
+JSON is the source of truth.
+The text file is the presentation layer.
+
+## Failure Philosophy
+
+This repo follows the same general philosophy as Source Garden:
+- no silent failure
+- preserve raw output when parsing breaks
+- emit parse warnings explicitly
+- keep malformed sections visible
+- salvage what can be salvaged
+
+Failure states are represented as structured outputs, not just terminal messages.
+
+Examples:
+- invalid YouTube URL
+- transcript fetch failure
+- parse drift
+- model failure
+
+## Current CLI Behavior
+
+The interactive flow is still simple:
+
+1. choose input method
+2. provide one source
+3. wait for analysis
+4. review rendered report in terminal
+5. inspect saved `.txt` and `.json` artifacts
+
+The CLI also still provides:
+- transcript status messages
+- a routing message before the model call
+- a spinner during active analysis
 
 ## Setup
 
-1. Add a model API key to `.env`.
+Create `.env` with one valid API key:
 
-For Gemini today:
-- `GEMINI_API_KEY=your_key`
-- or `GOOGLE_API_KEY=your_key`
+```env
+GEMINI_API_KEY=your_key_here
+```
 
-2. Run the app:
-- `uv run python main.py`
-- or `.venv\Scripts\python.exe main.py`
+or:
 
-## Notes
+```env
+GOOGLE_API_KEY=your_key_here
+```
 
-- The YouTube flow requires a video with an available transcript.
-- If you paste a larger note containing multiple YouTube links, the CLI will use the first valid YouTube URL it finds.
-- The project uses the current `google-genai` SDK rather than the deprecated `google.generativeai` package.
-- The CLI shows status updates after transcript capture, before routing to the model, and during active analysis.
-- Final console output is normalized before display so formatting stays stable even when the model drifts.
+Install dependencies:
+
+```powershell
+uv sync
+```
+
+Run the CLI:
+
+```powershell
+uv run python main.py
+```
+
+or:
+
+```powershell
+.\.venv\Scripts\python.exe main.py
+```
+
+## Dependencies
+
+Current runtime dependencies from [pyproject.toml](C:/Users/Owl/playbook/wtp-signal-extractor/pyproject.toml:1):
+- `google-genai`
+- `python-dotenv`
+- `youtube-transcript-api`
+
+Python target:
+- `>=3.14`
+
+## Testing
+
+The current test suite lives in [test_main.py](C:/Users/Owl/playbook/wtp-signal-extractor/test_main.py:1).
+
+It currently covers:
+- structured parsing
+- fallback parsing behavior
+- entity extraction structure
+- gatekeeper classification structure
+- register alignment validity
+- JSON artifact writing
+- mocked CLI flow
+- aggregation behavior
+- console-output normalization
+- transcript fetch behavior
+
+Run tests with:
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest -v
+```
+
+## Current Limitations
+
+These are real current limitations, not future aspirations:
+
+- only one source can be entered interactively per run
+- no batch URL ingestion exists yet
+- no session manifest ingestion exists yet
+- no OpenAI-compatible provider path exists yet
+- no provider abstraction layer exists yet
+- no hard cross-repo integration with Source Garden exists yet
+- diagnostics are partly heuristic
+- the parser still depends on the model broadly respecting the requested structure
+- aggregation exists as a function, not yet as a full session CLI
+
+## What The Previous README Claimed That Is Not Yet Implemented
+
+The previous README described several future-state capabilities that do **not** exist in the repo today:
+
+- multi-URL CLI batch support
+- session manifest support
+- concurrent transcript fetching across many sources
+- provider abstraction with Gemini and OpenAI-compatible adapters
+- `pipeline/` and `providers/` directory layouts
+- session-wide synthesis over many fetched sources as a user-facing CLI flow
+- per-session report directories like `reports/<session-id>/...`
+
+Those ideas may still be good future direction, but they were not accurate descriptions of the current codebase.
+
+## Repo Hygiene Notes
+
+Ignored local/runtime artifacts include:
+- `.env`
+- `.env.*`
+- `.venv/`
+- `__pycache__/`
+- `outputs/`
+- `.uv-cache/`
+- `tmp*/`
+
+## Summary
+
+The repo today is best described as:
+- a working single-source research CLI
+- a Gemini-first structured evaluator
+- a Source Garden-compatible diagnostics producer
+- a JSON-first artifact generator
+
+It is already useful as the evaluator side of a closed-loop system.
+It is not yet the full multi-source orchestration layer.

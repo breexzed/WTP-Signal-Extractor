@@ -1,92 +1,39 @@
-import os
+from __future__ import annotations
+
+import io
+import json
+import shutil
 import unittest
+from contextlib import redirect_stdout
+from datetime import datetime
+from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import main
+from aggregate import aggregate_source_results
+from diagnostics import build_diagnostics
+from extract import parse_model_output
+from render import render_result, safe_console_text
+from schemas import REGISTER_NAMES, merge_result
+from session_store import write_artifacts
 
 
-class MainTests(unittest.TestCase):
-    def test_safe_console_text_normalizes_common_unicode(self):
-        text = 'operator -> client \u2014 "quoted" \u2192 next'
-        normalized = main.safe_console_text(text)
-        self.assertEqual(normalized, 'operator -> client - "quoted" -> next')
-
-    def test_format_analysis_output_normalizes_multi_pass_response(self):
-        raw_output = """
-        PASS 1: WILLINGNESS-TO-PAY SIGNALS
-        BEHAVIOR LEVEL SIGNALS (High WTP Evidence)
-        - QUOTE: "We paid for two scheduling tools"
-          - CATEGORY: Money Spent
-          - WTP IMPLICATION: They already spend to solve this.
-        - QUOTE: "then abandoned them"
-          - CATEGORY: Tool Abandoned
-          - WTP IMPLICATION: Current tools failed.
-
-        OPINION LEVEL SIGNALS (Low WTP Evidence)
-        None found.
-
-        PASS 1 SUMMARY
-        - Total high-signal moments: 2
-        - Dominant pain category: Money Spent
-        - Confidence level: High
-
-        CATEGORY A - CASCADE INDICATORS
-        - QUOTE: "Missing appointments was costing us clients"
-          - LAYERS BROKEN: operator -> client
-          - CASCADE DEPTH: Two-layer
-          - BUILD SIGNAL: Worth building for because the loss reaches the client layer.
-
-        CATEGORY B - GATEKEEPER MENTIONS
-        - QUOTE: "We depended on the booking platform"
-          - ENTITY NAMED: Booking platform
-          - DEPENDENCY TYPE: Platform
-          - OPERATOR RELATIONSHIP: Dependent
-          - GATEKEEPER SIGNAL: This platform has structural control over bookings.
-
-        CATEGORY C - POSITION INTELLIGENCE
-        - QUOTE: "They only care about keeping volume high"
-          - ENTITY: Booking platform
-          - WHAT THEY PROTECT: They appear to protect throughput over operator flexibility.
-          - CONFIDENCE: Medium
-
-        CATEGORY D - SUBNICHE CULTURE SIGNALS
-        - QUOTE: "We're not trying to be the cheapest clinic in town"
-          - SUBNICHE IDENTIFIED: Premium dental clinic
-          - DIFFERENTIATION CLAIM: The operator is positioning around quality over price.
-          - FGP USE: Both
-
-        PASS 2 SUMMARY
-        - Strongest cascade found: "Missing appointments was costing us clients" (Two-layer)
-        - Highest-signal gatekeeper mention: Booking platform (Platform)
-        - Position intelligence confidence: Medium
-        - Recommended next action: Feed this into Phase 3 gatekeeper research first.
-
-        COMBINED INTELLIGENCE SUMMARY
-        TOP 3 ACTIONABLE SIGNALS ACROSS BOTH PASSES:
-        1. The operator already pays and churns tools - Pass 1 - strong buyer intent.
-        2. Client harm cascades downstream - Pass 2 - sharper build priority.
-        3. The booking platform has dependency power - Pass 2 - investigate control points.
-
-        ONE HYPOTHESIS WORTH TESTING:
-        If premium clinics could prevent missed bookings without relying on a platform, they would switch spend toward a dedicated workflow tool.
-        """
-
-        formatted = main.format_analysis_output(raw_output)
-
-        expected = """PASS 1: WILLINGNESS-TO-PAY SIGNALS
+SAMPLE_RAW_OUTPUT = """
+PASS 1: WILLINGNESS-TO-PAY SIGNALS
 
 BEHAVIOR-LEVEL SIGNALS (High WTP Evidence)
 - QUOTE: "We paid for two scheduling tools"
 - CATEGORY: Money Spent
-- WTP IMPLICATION: They already spend to solve this.
+- WTP IMPLICATION: They already spend to solve this problem.
 
 - QUOTE: "then abandoned them"
 - CATEGORY: Tool Abandoned
-- WTP IMPLICATION: Current tools failed.
+- WTP IMPLICATION: Existing tools failed to fit the workflow.
 
 OPINION-LEVEL SIGNALS (Low WTP Evidence)
-None found.
+- QUOTE: "It would be nice if intake was cleaner"
+- WHY LOW SIGNAL: This is a preference statement without action.
 
 PASS 1 SUMMARY
 - Total high-signal moments: 2
@@ -95,111 +42,242 @@ PASS 1 SUMMARY
 
 PASS 2: FGP PIPELINE INTELLIGENCE
 
-CATEGORY A — CASCADE INDICATORS
-- QUOTE: "Missing appointments was costing us clients"
-- LAYERS BROKEN: operator -> client
+CATEGORY A - CASCADE INDICATORS
+- QUOTE: "missing appointments was costing us clients"
+- LAYERS BROKEN: operator -> clients
 - CASCADE DEPTH: Two-layer
-- BUILD SIGNAL: Worth building for because the loss reaches the client layer.
+- BUILD SIGNAL: Worth building for because clients are directly affected.
 
-CATEGORY B — GATEKEEPER MENTIONS
-- QUOTE: "We depended on the booking platform"
-- ENTITY NAMED: Booking platform
-- DEPENDENCY TYPE: Platform
-- OPERATOR RELATIONSHIP: Dependent
-- GATEKEEPER SIGNAL: This platform has structural control over bookings.
+CATEGORY B - GATEKEEPER MENTIONS
+- QUOTE: "We still depend on Zocdoc because they control intake volume"
+- ENTITY NAMED: Zocdoc
+- DEPENDENCY TYPE: platform
+- OPERATOR RELATIONSHIP: dependent
+- GATEKEEPER SIGNAL: This platform controls a key customer-acquisition path.
 
-CATEGORY C — POSITION INTELLIGENCE
-- QUOTE: "They only care about keeping volume high"
-- ENTITY: Booking platform
-- WHAT THEY PROTECT: They appear to protect throughput over operator flexibility.
+CATEGORY C - POSITION INTELLIGENCE
+- QUOTE: "they mostly care about keeping throughput high"
+- ENTITY: Zocdoc
+- WHAT THEY PROTECT: They optimize for throughput and high booking flow.
 - CONFIDENCE: Medium
 
-CATEGORY D — SUBNICHE CULTURE SIGNALS
+CATEGORY D - SUBNICHE CULTURE SIGNALS
 - QUOTE: "We're not trying to be the cheapest clinic in town"
 - SUBNICHE IDENTIFIED: Premium dental clinic
-- DIFFERENTIATION CLAIM: The operator is positioning around quality over price.
+- DIFFERENTIATION CLAIM: The operator competes on quality rather than price.
 - FGP USE: Both
 
 PASS 2 SUMMARY
-- Strongest cascade found: "Missing appointments was costing us clients" (Two-layer)
-- Highest-signal gatekeeper mention: Booking platform (Platform)
+- Strongest cascade found: "missing appointments was costing us clients" (Two-layer)
+- Highest-signal gatekeeper mention: Zocdoc (platform)
 - Position intelligence confidence: Medium
-- Recommended next action: Feed this into Phase 3 gatekeeper research first.
+- Recommended next action: Phase 3 - investigate the booking platform and its incentives.
 
 COMBINED INTELLIGENCE SUMMARY
 
 TOP 3 ACTIONABLE SIGNALS ACROSS BOTH PASSES:
-1. The operator already pays and churns tools - Pass 1 - strong buyer intent.
-2. Client harm cascades downstream - Pass 2 - sharper build priority.
-3. The booking platform has dependency power - Pass 2 - investigate control points.
+1. The operator already spends and churns tools - Pass 1 - strong buying behavior.
+2. Client harm cascades downstream - Pass 2 - build priority is clear.
+3. Zocdoc appears as a recurring gatekeeper - Pass 2 - dependency should be investigated.
 
 ONE HYPOTHESIS WORTH TESTING:
-If premium clinics could prevent missed bookings without relying on a platform, they would switch spend toward a dedicated workflow tool."""
-        self.assertEqual(formatted, expected)
+If premium clinics could reduce missed appointments without depending on booking platforms, they would switch spend toward a dedicated workflow solution.
 
-    def test_format_analysis_output_falls_back_cleanly_when_missing_sections(self):
-        formatted = main.format_analysis_output("No clear signals found.")
+SOURCE DIAGNOSTICS
+- SOURCE TYPE: operator_interview
+- SPEAKER TYPE: operator
+- PHASE FIT: 3
+- SIGNAL DENSITY: high
 
-        expected = """PASS 1: WILLINGNESS-TO-PAY SIGNALS
+NAMED ENTITIES
+- NAME: Zocdoc
+- ENTITY KIND: platform
+- RELATIONSHIP: dependent
+- SUPPORTING QUOTE: "We still depend on Zocdoc because they control intake volume"
+- CONFIDENCE: high
 
-BEHAVIOR-LEVEL SIGNALS (High WTP Evidence)
-None found.
+GATEKEEPER OBJECTS
+- ENTITY: Zocdoc
+- DEPENDENCY TYPE: platform
+- GATEKEEPER TYPE: Type4
+- OPERATOR RELATIONSHIP: dependent
+- SUPPORTING QUOTE: "We still depend on Zocdoc because they control intake volume"
+- CONFIDENCE: high
 
-OPINION-LEVEL SIGNALS (Low WTP Evidence)
-None found.
+REGISTER ALIGNMENT
+- REGISTER: complaint_register
+- MATCHED SIGNALS: 2
+- STRENGTH: medium
 
-PASS 1 SUMMARY
-- Total high-signal moments: 0
-- Dominant pain category: None found.
-- Confidence level: Not provided.
+- REGISTER: intermediary_register
+- MATCHED SIGNALS: 1
+- STRENGTH: low
 
-PASS 2: FGP PIPELINE INTELLIGENCE
+SEARCH LANGUAGE FEEDBACK
+- LIKELY TOO GENERIC: false
+- TOO VENDOR HEAVY: false
+- OFF PHASE: false
+- LIKELY OPERATOR FACING: true
+- LIKELY GATEKEEPER FACING: false
+- REASON: The source is strongly operator-facing and contains named dependency evidence.
 
-CATEGORY A — CASCADE INDICATORS
-None found.
+DIAGNOSTIC NOTES
+1. Strong operator pain with one named platform dependency.
+"""
 
-CATEGORY B — GATEKEEPER MENTIONS
-None found.
 
-CATEGORY C — POSITION INTELLIGENCE
-None found.
+def build_result_from_raw(
+    raw_output: str,
+    transcript_text: str,
+    source_id: str = "test-source",
+    input_type: str = "pasted_transcript",
+    transcript_status: str = "pasted",
+    url: str | None = None,
+    video_id: str | None = None,
+    provenance: dict[str, str | None] | None = None,
+) -> dict[str, object]:
+    parsed = parse_model_output(raw_output)
+    provenance = provenance or {
+        "origin_cluster_id": None,
+        "origin_register": "complaint_register",
+        "query_used": "dental clinic scheduling pain points 2026",
+    }
+    diagnostics = build_diagnostics(parsed, transcript_text, provenance)
+    source = {
+        "source_id": source_id,
+        "url": url,
+        "video_id": video_id,
+        "input_type": input_type,
+        "transcript_status": transcript_status,
+        "source_type": diagnostics.pop("source_type"),
+        "speaker_type": diagnostics.pop("speaker_type"),
+    }
+    return merge_result(
+        source=source,
+        provenance=provenance,
+        pass1=parsed["pass1"],
+        pass2=parsed["pass2"],
+        diagnostics=diagnostics,
+        combined_summary=parsed["combined_summary"],
+        parse_warnings=parsed["parse_warnings"],
+        raw_output=parsed["raw_output"],
+    )
 
-CATEGORY D — SUBNICHE CULTURE SIGNALS
-None found.
 
-PASS 2 SUMMARY
-- Strongest cascade found: None found.
-- Highest-signal gatekeeper mention: None found.
-- Position intelligence confidence: Low
-- Recommended next action: Not provided.
+class MainTests(unittest.TestCase):
+    def test_parse_model_output_returns_structured_sections(self):
+        parsed = parse_model_output(SAMPLE_RAW_OUTPUT)
 
-COMBINED INTELLIGENCE SUMMARY
+        self.assertEqual(len(parsed["pass1"]["behavior_signals"]), 2)
+        self.assertEqual(parsed["pass1"]["summary"]["total_high_signal_moments"], 2)
+        self.assertEqual(len(parsed["pass2"]["gatekeeper_mentions"]), 1)
+        self.assertEqual(parsed["combined_summary"]["top_3_actionable_signals"][0], "The operator already spends and churns tools - Pass 1 - strong buying behavior.")
+        self.assertEqual(parsed["diagnostic_hints"]["source_type"], "operator_interview")
 
-TOP 3 ACTIONABLE SIGNALS ACROSS BOTH PASSES:
-1. None found.
-2. None found.
-3. None found.
+    def test_parse_model_output_preserves_warnings_when_sections_are_missing(self):
+        parsed = parse_model_output("PASS 1 SUMMARY\n- Confidence level: Low")
 
-ONE HYPOTHESIS WORTH TESTING:
-None found."""
-        self.assertEqual(formatted, expected)
+        self.assertTrue(parsed["parse_warnings"])
+        self.assertEqual(parsed["pass1"]["summary"]["confidence_level"], "Low")
+        self.assertEqual(parsed["combined_summary"]["hypothesis_worth_testing"], "None found.")
 
-    def test_normalize_youtube_input_extracts_first_url_from_pasted_text(self):
-        raw_text = (
-            'Videos: "How I Would 2X a Firm" '
-            "(https://www.youtube.com/watch?v=Kdr3fxgRLVU or "
-            "https://www.youtube.com/watch?v=KIcCix_lQjQ)"
+    def test_build_diagnostics_derives_named_entities_and_gatekeepers(self):
+        result = build_result_from_raw(
+            SAMPLE_RAW_OUTPUT,
+            transcript_text=(
+                "We paid for tools, lost clients from missed appointments, and still depend on Zocdoc."
+            ),
         )
-        normalized = main.normalize_youtube_input(raw_text)
-        self.assertEqual(normalized, "https://www.youtube.com/watch?v=Kdr3fxgRLVU")
 
-    def test_extract_video_id_from_watch_url(self):
-        video_id = main.extract_video_id("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
-        self.assertEqual(video_id, "dQw4w9WgXcQ")
+        named_entity = result["diagnostics"]["named_entities"][0]
+        gatekeeper = result["diagnostics"]["gatekeepers"][0]
 
-    def test_extract_video_id_from_short_url(self):
-        video_id = main.extract_video_id("https://youtu.be/dQw4w9WgXcQ")
-        self.assertEqual(video_id, "dQw4w9WgXcQ")
+        self.assertEqual(named_entity["name"], "Zocdoc")
+        self.assertEqual(named_entity["entity_kind"], "platform")
+        self.assertEqual(gatekeeper["entity"], "Zocdoc")
+        self.assertEqual(gatekeeper["gatekeeper_type"], "Type4")
+        self.assertEqual(gatekeeper["dependency_type"], "platform")
+
+    def test_register_alignment_only_uses_source_garden_registers(self):
+        result = build_result_from_raw(
+            SAMPLE_RAW_OUTPUT,
+            transcript_text="2026 operator discussion about Zocdoc and client loss.",
+        )
+
+        for item in result["diagnostics"]["register_alignment"]:
+            self.assertIn(item["register"], REGISTER_NAMES)
+
+    def test_render_result_includes_structured_diagnostics_sections(self):
+        result = build_result_from_raw(
+            SAMPLE_RAW_OUTPUT,
+            transcript_text="We paid for tools and depend on Zocdoc.",
+        )
+        rendered = render_result(result)
+
+        self.assertIn("SOURCE", rendered)
+        self.assertIn("NAMED ENTITIES", rendered)
+        self.assertIn("GATEKEEPERS", rendered)
+        self.assertIn("REGISTER ALIGNMENT", rendered)
+        self.assertIn("PARSE WARNINGS", rendered)
+
+    def test_safe_console_text_normalizes_common_unicode(self):
+        text = 'operator -> client \u2014 "quoted" \u2192 next'
+        normalized = safe_console_text(text)
+        self.assertEqual(normalized, 'operator -> client - "quoted" -> next')
+
+    def test_write_artifacts_creates_json_and_text_files(self):
+        result = build_result_from_raw(
+            SAMPLE_RAW_OUTPUT,
+            transcript_text="We paid for tools and depend on Zocdoc.",
+        )
+        text_report = render_result(result)
+
+        temp_dir = Path("test-output-write")
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            paths = write_artifacts(
+                result,
+                text_report,
+                output_dir=temp_dir,
+                session_id="session-1",
+                timestamp=datetime(2026, 5, 7, 12, 0, 0),
+            )
+
+            self.assertTrue(Path(paths["text_path"]).exists())
+            self.assertTrue(Path(paths["json_path"]).exists())
+
+            payload = json.loads(Path(paths["json_path"]).read_text(encoding="utf-8"))
+            self.assertEqual(payload["source"]["source_id"], "test-source")
+            self.assertEqual(payload["diagnostics"]["gatekeepers"][0]["entity"], "Zocdoc")
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_aggregate_source_results_rolls_up_session_diagnostics(self):
+        result_one = build_result_from_raw(
+            SAMPLE_RAW_OUTPUT,
+            transcript_text="We paid for tools and depend on Zocdoc.",
+            source_id="source-1",
+        )
+        result_two = build_result_from_raw(
+            SAMPLE_RAW_OUTPUT.replace("Zocdoc", "Doctolib"),
+            transcript_text="We paid for tools and depend on Doctolib.",
+            source_id="source-2",
+            provenance={
+                "origin_cluster_id": "cluster-2",
+                "origin_register": "intermediary_register",
+                "query_used": "clinic booking platform dependency 2026",
+            },
+        )
+
+        aggregate = aggregate_source_results([result_one, result_two], session_id="session-aggregate")
+
+        self.assertEqual(aggregate["session_id"], "session-aggregate")
+        self.assertEqual(aggregate["source_count"], 2)
+        self.assertTrue(aggregate["register_performance"])
+        self.assertTrue(aggregate["gatekeeper_type_distribution"])
+        self.assertTrue(aggregate["recurring_entities"])
+        self.assertEqual(aggregate["recommended_next_phase"], "3")
 
     @patch("main.YouTubeTranscriptApi")
     def test_get_transcript_from_url_returns_joined_text(self, transcript_api_cls):
@@ -214,66 +292,45 @@ None found."""
 
         self.assertEqual(transcript, "paid for three tools and built a workaround")
 
-    @patch.dict(
-        os.environ,
-        {"GOOGLE_API_KEY": "test-key"},
-        clear=True,
-    )
-    @patch("main.genai.Client")
-    def test_analyze_transcript_uses_current_sdk_and_formats_output(self, client_cls):
-        client = MagicMock()
-        response = MagicMock()
-        response.text = """
-        BEHAVIOR-LEVEL SIGNALS (High WTP Evidence)
-        - QUOTE: customer paid for a workaround
-        - CATEGORY: Money Spent
-        - WTP IMPLICATION: They already spend on this problem.
+    def test_extract_video_id_from_short_url(self):
+        video_id = main.extract_video_id("https://youtu.be/dQw4w9WgXcQ")
+        self.assertEqual(video_id, "dQw4w9WgXcQ")
 
-        PASS 1 SUMMARY
-        - Total high-signal moments: 1
-        - Dominant pain category: Money Spent
-        - Confidence level: High
+    def test_end_to_end_mocked_cli_flow_writes_text_and_json(self):
+        temp_dir = Path("test-output-cli")
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            real_write_artifacts = write_artifacts
 
-        CATEGORY B - GATEKEEPER MENTIONS
-        - QUOTE: they rely on the marketplace
-        - ENTITY NAMED: marketplace
-        - DEPENDENCY TYPE: Platform
-        - OPERATOR RELATIONSHIP: Dependent
-        - GATEKEEPER SIGNAL: Worth investigating.
+            def write_to_temp(result, text_report):
+                return real_write_artifacts(
+                    result,
+                    text_report,
+                    output_dir=temp_dir,
+                    session_id="cli-session",
+                    timestamp=datetime(2026, 5, 7, 12, 0, 1),
+                )
 
-        COMBINED INTELLIGENCE SUMMARY
-        TOP 3 ACTIONABLE SIGNALS ACROSS BOTH PASSES:
-        1. Strong buying behavior in Pass 1.
+            stdout = io.StringIO()
+            with patch("builtins.input", side_effect=["2", "We paid for two tools and still depend on Zocdoc.", "End"]), patch(
+                "main.call_model",
+                return_value=SAMPLE_RAW_OUTPUT,
+            ), patch(
+                "main.write_artifacts",
+                side_effect=write_to_temp,
+            ), redirect_stdout(stdout):
+                main.main()
 
-        ONE HYPOTHESIS WORTH TESTING:
-        If operators had a better workflow, they would spend to switch.
-        """
-        client.models.generate_content.return_value = response
-        client_cls.return_value = client
-
-        result = main.analyze_transcript_("customer paid for a workaround")
-
-        self.assertIn("PASS 1: WILLINGNESS-TO-PAY SIGNALS", result)
-        self.assertIn("PASS 2: FGP PIPELINE INTELLIGENCE", result)
-        self.assertIn("- QUOTE: customer paid for a workaround", result)
-        self.assertIn("- Highest-signal gatekeeper mention: marketplace (Platform)", result)
-        self.assertIn("1. Strong buying behavior in Pass 1.", result)
-        client_cls.assert_called_once_with(api_key="test-key")
-        client.models.generate_content.assert_called_once()
-
-    @patch("main._spinner")
-    @patch("main.analyze_transcript_")
-    def test_run_analysis_with_progress_shows_status(self, analyze_mock, spinner_mock):
-        analyze_mock.return_value = "analysis"
-
-        with patch("main.show_status") as status_mock:
-            result = main.run_analysis_with_progress("transcript")
-
-        self.assertEqual(result, "analysis")
-        status_mock.assert_called_once_with(
-            "\nTranscript received. Routing analysis request to Gemini..."
-        )
-        spinner_mock.assert_called_once()
+            files = list(Path(temp_dir).iterdir())
+            self.assertEqual(len(files), 2)
+            output = stdout.getvalue()
+            self.assertIn("=== RESULTS ===", output)
+            self.assertIn("Artifacts saved:", output)
+            self.assertTrue(any(file.suffix == ".json" for file in files))
+            self.assertTrue(any(file.suffix == ".txt" for file in files))
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":

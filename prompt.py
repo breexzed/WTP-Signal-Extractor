@@ -119,6 +119,82 @@ TOP 3 ACTIONABLE SIGNALS ACROSS BOTH PASSES:
 ONE HYPOTHESIS WORTH TESTING:
 [A single falsifiable product or distribution hypothesis that this transcript supports. State it as: "If [specific operator type] could [specific capability], they would [specific behavior change or spending decision]."]
 
+═══════════════════════════════════════════════════════
+SOURCE DIAGNOSTICS
+═══════════════════════════════════════════════════════
+
+Add a source diagnostics block after the combined summary.
+Be conservative. If evidence is weak, prefer `unknown` or omit the item rather than guessing.
+
+SOURCE DIAGNOSTICS
+- SOURCE TYPE: [operator_interview / panel / vendor_demo / trade_discussion / unknown]
+- SPEAKER TYPE: [operator / intermediary / mixed / unknown]
+- PHASE FIT: [0 / 1 / 2 / 3 / 3.5 / mixed / unknown]
+- SIGNAL DENSITY: [low / medium / high]
+
+NAMED ENTITIES
+Extract only named entities explicitly supported by transcript evidence.
+Do not hallucinate entities.
+If none are clearly present, write: None found.
+
+For each named entity:
+- NAME: [exact entity name]
+- ENTITY KIND: [platform / software / institution / distributor / person / certification_body / other]
+- RELATIONSHIP: [dependent / frustrated / switching / praise / unknown]
+- SUPPORTING QUOTE: [exact quote supporting why this entity matters]
+- CONFIDENCE: [low / medium / high]
+
+GATEKEEPER OBJECTS
+Extract only if evidence exists in the transcript.
+The gatekeeper type must be evidence-based, not casual guesswork.
+Use:
+- Type1 = owns a process others cannot bypass
+- Type2 = their word moves the network
+- Type3 = controls information others need
+- Type4 = platform controlling access to customers
+
+For each gatekeeper object:
+- ENTITY: [exact entity name]
+- DEPENDENCY TYPE: [structural_friction / social_authority / information_asymmetry / platform / unknown]
+- GATEKEEPER TYPE: [Type1 / Type2 / Type3 / Type4 / unknown]
+- OPERATOR RELATIONSHIP: [dependent / frustrated / loyal / switching_away / unknown]
+- SUPPORTING QUOTE: [exact quote]
+- CONFIDENCE: [low / medium / high]
+
+REGISTER ALIGNMENT
+Give a conservative guess for which Source Garden register families this source most resembles.
+Use only these register names:
+- operator_vernacular
+- industry_professional
+- complaint_register
+- consequence_register
+- intermediary_register
+- trade_publication
+- job_listing_register
+- year_specific
+- gatekeeper_self_description
+
+If none are clearly supported, write: None found.
+
+For each register alignment:
+- REGISTER: [must be one of the allowed names above]
+- MATCHED SIGNALS: [integer]
+- STRENGTH: [low / medium / high]
+
+SEARCH LANGUAGE FEEDBACK
+Give a conservative first-pass diagnostic about the source and the likely upstream search language.
+
+- LIKELY TOO GENERIC: [true / false]
+- TOO VENDOR HEAVY: [true / false]
+- OFF PHASE: [true / false]
+- LIKELY OPERATOR FACING: [true / false]
+- LIKELY GATEKEEPER FACING: [true / false]
+- REASON: [one sentence]
+
+DIAGNOSTIC NOTES
+List any short conservative notes that would help a future Source Garden loop understand what this source did or did not give.
+If none, write: None found.
+
 Do not add commentary outside this structure.
 Do not hallucinate signals that are not in the text.
 If a category yields nothing, write: None found.
