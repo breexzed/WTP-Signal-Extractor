@@ -109,6 +109,98 @@ def render_top_signals(items: list[str]) -> str:
     return "\n".join(f"{index}. {item}" for index, item in enumerate(normalized, start=1))
 
 
+def render_session_sources(sources: list[dict[str, Any]]) -> str:
+    if not sources:
+        return "None found."
+
+    rendered = []
+    for source in sources:
+        rendered.append(
+            "\n".join(
+                [
+                    f"- SOURCE ID: {source.get('source_id', 'Not provided.')}",
+                    f"- INPUT TYPE: {source.get('input_type', 'Not provided.')}",
+                    f"- TRANSCRIPT STATUS: {source.get('transcript_status', 'Not provided.')}",
+                    f"- SOURCE TYPE: {source.get('source_type', 'Not provided.')}",
+                    f"- SPEAKER TYPE: {source.get('speaker_type', 'Not provided.')}",
+                    f"- URL: {source.get('url') or 'None'}",
+                ]
+            )
+        )
+    return "\n\n".join(rendered)
+
+
+def render_count_blocks(items: list[dict[str, Any]], label_field: str, value_field: str) -> str:
+    if not items:
+        return "None found."
+    return "\n".join(
+        f"- {item.get(label_field, 'Not provided.')}: {item.get(value_field, 0)}"
+        for item in items
+    )
+
+
+def render_recurring_entities(items: list[dict[str, Any]]) -> str:
+    if not items:
+        return "None found."
+
+    rendered = []
+    for item in items:
+        rendered.append(
+            "\n".join(
+                [
+                    f"- NAME: {item.get('name', 'Not provided.')}",
+                    f"- ENTITY KIND: {item.get('entity_kind', 'Not provided.')}",
+                    f"- COUNT: {item.get('count', 0)}",
+                    f"- SOURCE IDS: {', '.join(item.get('source_ids', [])) or 'None'}",
+                ]
+            )
+        )
+    return "\n\n".join(rendered)
+
+
+def render_query_feedback(items: list[dict[str, Any]]) -> str:
+    if not items:
+        return "None found."
+
+    rendered = []
+    for item in items:
+        rendered.append(
+            "\n".join(
+                [
+                    f"- SOURCE ID: {item.get('source_id', 'Not provided.')}",
+                    f"- QUERY USED: {item.get('query_used') or 'None'}",
+                    f"- LIKELY TOO GENERIC: {item.get('likely_too_generic', False)}",
+                    f"- TOO VENDOR HEAVY: {item.get('too_vendor_heavy', False)}",
+                    f"- OFF PHASE: {item.get('off_phase', False)}",
+                    f"- LIKELY OPERATOR FACING: {item.get('likely_operator_facing', False)}",
+                    f"- LIKELY GATEKEEPER FACING: {item.get('likely_gatekeeper_facing', False)}",
+                    f"- REASON: {item.get('reason', 'Not provided.')}",
+                ]
+            )
+        )
+    return "\n\n".join(rendered)
+
+
+def render_session_context(session_context: dict[str, Any]) -> str:
+    if not session_context:
+        return "None provided."
+
+    ordered_fields = [
+        "vertical",
+        "operator_type",
+        "targeted_subniche",
+        "fgp_phase",
+        "gatekeeper_type",
+        "currency_window",
+        "session_date",
+        "prior_loop_map_phase",
+    ]
+    rendered = []
+    for field in ordered_fields:
+        rendered.append(f"- {field.replace('_', ' ').title()}: {session_context.get(field) or 'None'}")
+    return "\n".join(rendered)
+
+
 def render_result(result: dict[str, Any]) -> str:
     source = result["source"]
     provenance = result["provenance"]
@@ -182,4 +274,33 @@ def render_result(result: dict[str, Any]) -> str:
         + ("\n".join(f"- {note}" for note in diagnostic_notes) if diagnostic_notes else "None found.")
         + "\n\nPARSE WARNINGS\n"
         + f"{render_parse_warnings(result['parse_warnings'])}"
+    )
+
+
+def render_session_report(session_result: dict[str, Any]) -> str:
+    aggregate_notes = session_result.get("aggregate_notes") or []
+    manifest_path = session_result.get("manifest_path") or "None"
+
+    return (
+        "SESSION SUMMARY\n"
+        f"- Session ID: {session_result['session_id']}\n"
+        f"- Source Count: {session_result['source_count']}\n"
+        f"- Recommended Next Phase: {session_result['recommended_next_phase']}\n"
+        f"- Manifest Path: {manifest_path}\n\n"
+        "SESSION CONTEXT\n"
+        f"{render_session_context(session_result.get('session_context') or {})}\n\n"
+        "SOURCES\n"
+        f"{render_session_sources(session_result.get('sources') or [])}\n\n"
+        "REGISTER PERFORMANCE\n"
+        f"{render_register_alignment(session_result['register_performance'])}\n\n"
+        "GATEKEEPER TYPE DISTRIBUTION\n"
+        f"{render_count_blocks(session_result['gatekeeper_type_distribution'], 'gatekeeper_type', 'count')}\n\n"
+        "RECURRING ENTITIES\n"
+        f"{render_recurring_entities(session_result['recurring_entities'])}\n\n"
+        "SOURCE TYPE PERFORMANCE\n"
+        f"{render_count_blocks(session_result['source_type_performance'], 'source_type', 'signal_total')}\n\n"
+        "QUERY FEEDBACK\n"
+        f"{render_query_feedback(session_result['query_feedback'])}\n\n"
+        "AGGREGATE NOTES\n"
+        + ("\n".join(f"- {note}" for note in aggregate_notes) if aggregate_notes else "None found.")
     )

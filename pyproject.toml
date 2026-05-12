@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "google-genai>=1.13.0",
+    "openai>=1.82.0",
     "python-dotenv>=1.2.2",
     "youtube-transcript-api>=1.2.4",
 ]

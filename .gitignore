@@ -9,5 +9,6 @@ __pycache__/
 .coverage
 htmlcov/
 outputs/
+reports/
 .uv-cache/
 tmp*/

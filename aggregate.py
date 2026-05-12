@@ -79,3 +79,26 @@ def aggregate_source_results(
         "recommended_next_phase": most_common_phase(results),
         "aggregate_notes": aggregate_notes,
     }
+
+
+def build_session_result(
+    results: list[dict[str, Any]],
+    session_id: str,
+    session_context: dict[str, Any] | None = None,
+    manifest_path: str | None = None,
+) -> dict[str, Any]:
+    aggregate = aggregate_source_results(results, session_id=session_id)
+    aggregate["session_context"] = session_context or {}
+    aggregate["manifest_path"] = manifest_path
+    aggregate["sources"] = [
+        {
+            "source_id": result["source"]["source_id"],
+            "input_type": result["source"]["input_type"],
+            "transcript_status": result["source"]["transcript_status"],
+            "source_type": result["source"]["source_type"],
+            "speaker_type": result["source"]["speaker_type"],
+            "url": result["source"]["url"],
+        }
+        for result in results
+    ]
+    return aggregate
