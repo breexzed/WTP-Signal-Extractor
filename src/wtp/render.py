@@ -215,7 +215,22 @@ def render_evidence(evidence: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def render_failure(result: dict[str, Any]) -> str:
+    """A failed run has nothing to report but what failed and what to do."""
+    source = result["source"]
+    return (
+        f"STATUS: {result.get('status')}\n\n"
+        f"ERROR\n{result.get('error', 'Not provided.')}\n\n"
+        f"NEXT STEP\n{result.get('next_step', 'Not provided.')}\n\n"
+        "SOURCE\n"
+        f"- Source ID: {source['source_id']}\n"
+        f"- URL: {source['url'] or 'None'}"
+    )
+
+
 def render_result(result: dict[str, Any]) -> str:
+    if str(result.get("status", "")).endswith("_failed"):
+        return render_failure(result)
     source = result["source"]
     provenance = result["provenance"]
     diagnostics = result["diagnostics"]

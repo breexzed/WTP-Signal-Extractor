@@ -111,6 +111,8 @@ FIELD_GUIDE = {
            "the schema | json_object = only JSON enforced, schema checked locally), attempts per step "
            "({transcript, model}), provider, model, prompt hash (prompt + schema), timing.",
     "error": "Present only when status is *_failed: the exception, with the attempt count.",
+    "next_step": "Present only when status is *_failed: what to do next, in wtp's terms "
+                 "(wait, --transcript-file, WTP_YT_PROXY, fix the key, switch model or provider).",
     "artifacts": "Paths of every file this run wrote.",
 }
 
@@ -173,6 +175,7 @@ def describe(cli_flags: list[dict[str, Any]]) -> dict[str, Any]:
             "WTP_RETRY_BASE_DELAY": "seconds before the 1st retry, doubled each time (+<=25% jitter), default 2",
             ".env": "read from the working directory, then ~/.config/wtp/.env (WTP_CONFIG_DIR); "
                     "real environment variables win",
+            "WTP_YT_PROXY": "http(s) proxy URL for YouTube caption fetches (works around IP blocks)",
             "WTP_DATA_DIR": "where runs are saved, default ~/.local/share/wtp (runs/, sessions/<id>/)",
             "free_options": "ollama/llamacpp (local, no key, no quota); gemini, groq, openrouter ':free' "
                             "models have rate-limited free tiers. `--check` shows what is configured.",

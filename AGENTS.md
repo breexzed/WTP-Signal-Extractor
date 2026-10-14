@@ -47,8 +47,8 @@ Rules the CLI keeps (tests enforce them, `test_agent_contract.py`):
    | 0 | ok | analyzed, every quote found | use it |
    | 1 | degraded | parse warnings, or a quote `not_found` | read `parse_warnings` / `evidence.items`; don't cite `not_found` quotes |
    | 2 | — | bad flags, missing key, unreadable file | read stderr; run `--check` |
-   | 3 | transcript_failed | fetch failed or empty | read `error`; try another source or `--transcript-file` |
-   | 4 | analysis_failed | model call raised | read `error`; retry later or switch provider |
+   | 3 | transcript_failed | fetch failed or empty | do what `next_step` says (YouTube blocks: don't retry; `--transcript-file` or `WTP_YT_PROXY`) |
+   | 4 | analysis_failed | model call raised | do what `next_step` says; `error` has the full exception |
 
    Multi-source runs exit with the worst code. One bad source doesn't stop the others.
 2. **`evidence`**: `verified` (exact), `approximate` (≥80% of words in order: small edits),
@@ -94,7 +94,7 @@ Replay of one source: ~1.4 s wall. Quote check worst case: ~0.4 s for 35 fuzzy q
 
 ## Change the code
 ```bash
-uv run python -m unittest discover -s tests -t .    # 86 tests, ~15 s, no network
+uv run python -m unittest discover -s tests -t .    # 90 tests, ~15 s, no network
 ```
 | file | role |
 |---|---|

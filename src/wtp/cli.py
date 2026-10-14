@@ -34,7 +34,7 @@ from wtp.providers.openai_compatible import OpenAICompatibleProvider
 from wtp.render import render_result, render_session_report, safe_console_text
 from wtp.schemas import merge_result
 from wtp.session_store import sanitize_token, write_artifacts, write_session_artifacts
-from wtp.retry import with_retries
+from wtp.retry import status_code, with_retries
 from wtp.verify import verify_quotes
 
 # gemini-2.5-flash now returns 404 "no longer available to new users" (checked
@@ -197,6 +197,7 @@ def preflight() -> dict[str, object]:
     while not probe.exists() and probe != probe.parent:  # stop at / even if nothing exists
         probe = probe.parent
     checks["data_dir_writable"] = os.access(probe, os.W_OK)
+    checks["youtube_proxy_set"] = bool(os.getenv("WTP_YT_PROXY"))  # never the URL: it may hold a password
     checks["ok"] = checks["config_error"] is None
     return checks
 
@@ -219,9 +220,19 @@ def extract_video_id(url: str) -> str:
     raise ValueError(f"Not a YouTube video URL: {url!r} (expected youtu.be/ID or youtube.com/watch?v=ID)")
 
 
+def youtube_proxy_config():
+    """WTP_YT_PROXY=http://user:pass@host:port routes caption fetches through a proxy
+    (the documented way around YouTube IP blocks)."""
+    proxy = os.getenv("WTP_YT_PROXY")
+    if not proxy:
+        return None
+    from youtube_transcript_api.proxies import GenericProxyConfig
+    return GenericProxyConfig(http_url=proxy, https_url=proxy)
+
+
 def get_transcript_from_url(url: str) -> str:
     video_id = extract_video_id(url)
-    transcript_data = YouTubeTranscriptApi().fetch(video_id)
+    transcript_data = YouTubeTranscriptApi(proxy_config=youtube_proxy_config()).fetch(video_id)
     return " ".join(
         entry.text if hasattr(entry, "text") else entry["text"]
         for entry in transcript_data
@@ -471,11 +482,53 @@ def analyze_transcript_to_result(
     return result
 
 
+TRANSCRIPT_ADVICE = {
+    ("RequestBlocked", "IpBlocked"):
+        "YouTube is blocking caption requests from this IP (not retried: retrying extends blocks). "
+        "Wait a few hours, pass the transcript with --transcript-file, or set WTP_YT_PROXY=http://user:pass@host:port.",
+    ("TranscriptsDisabled", "NoTranscriptFound"):
+        "This video has no captions wtp can fetch. Get a transcript another way and use --transcript-file.",
+    ("VideoUnavailable", "VideoUnplayable", "InvalidVideoId", "AgeRestricted", "ValueError"):
+        "Check the URL: the video is unavailable, restricted, or not a YouTube video link.",
+}
+
+
+def next_step_for(error: BaseException | None, status: str) -> str:
+    """What to do next, in wtp's terms: the action, not the library's essay."""
+    names = {cls.__name__ for cls in type(error).__mro__} if error else set()
+    code = status_code(error) if error else None
+    if status == "transcript_failed":
+        for keys, advice in TRANSCRIPT_ADVICE.items():
+            if names & set(keys):
+                return advice
+        return "Try again later, or pass the transcript with --transcript-file."
+    if code in (401, 403) or "AuthenticationError" in names:
+        return "The API key was rejected. Run `wtp --check` and fix the key in ~/.config/wtp/.env."
+    if code == 404 or "NotFoundError" in names:
+        return "The model name was not found. Set LLM_MODEL_NAME (or GEMINI_MODEL_NAME) to a current model."
+    if code == 429:
+        return "Rate limit or quota. Wait, or switch provider (LLM_PROVIDER=ollama runs locally with no quota)."
+    if code is not None and code >= 500:
+        return "The provider is overloaded or down. Wait a few minutes or set another model/provider."
+    if "ClaudeRefusal" in names:
+        return "Claude declined this transcript. Try another provider."
+    if "MalformedModelOutput" in names:
+        return "The model kept returning invalid JSON. Try a larger model."
+    return "Read `error`, run `wtp --check`, then retry or switch provider."
+
+
+def short_error(error: BaseException) -> str:
+    """Type plus the first line: libraries put whole essays in exception messages."""
+    first = next((line.strip() for line in str(error).splitlines() if line.strip()), "")
+    return f"{type(error).__name__}: {first}"[:300]
+
+
 def build_failure_result(
     source: dict[str, str | None],
     provenance: dict[str, str | None],
     warning: str,
     status: str = "analysis_failed",
+    error: BaseException | None = None,
 ) -> dict[str, object]:
     result = merge_result(
         source=source,
@@ -484,11 +537,12 @@ def build_failure_result(
         pass2={},
         diagnostics={},
         combined_summary={},
-        parse_warnings=[warning],
+        parse_warnings=[],      # nothing was parsed; the failure lives in `error`
         raw_output=None,
     )
     result["status"] = status
     result["error"] = warning
+    result["next_step"] = next_step_for(error, status)
     result["evidence"]["reason"] = "Analysis did not run."
     return result
 
@@ -529,9 +583,10 @@ def analyze_safely(transcript, source, provenance, raw_output=None) -> dict[str,
         raise
     except Exception as error:
         attempts = getattr(error, "wtp_attempts", 1)
-        log(f"Analysis error after {attempts} attempt(s): {type(error).__name__}: {error}")
         result = build_failure_result(source, provenance,
-                                      f"Analysis failed after {attempts} attempt(s): {type(error).__name__}: {error}")
+                                      f"Analysis failed after {attempts} attempt(s): {type(error).__name__}: {error}",
+                                      error=error)
+        log(f"Analysis failed after {attempts} attempt(s): {short_error(error)}\nNext: {result['next_step']}")
         result["run"] = {"provider": get_provider_name(), "model": get_model_name(get_provider_name()),
                          "attempts": {**(source.pop("_attempts", None) or {}), "model": attempts}}
         return result
@@ -555,9 +610,10 @@ def process_youtube_source(
             input_type="youtube_url",
             transcript_status="failed",
         )
-        log(f"Error fetching transcript: {error}")
-        return build_failure_result(source, provenance, f"Transcript fetch failed: {error}",
-                                    status="transcript_failed"), None
+        result = build_failure_result(source, provenance, f"Transcript fetch failed: {error}",
+                                      status="transcript_failed", error=error)
+        log(f"Transcript fetch failed: {short_error(error)}\nNext: {result['next_step']}")
+        return result, None
 
     source = build_source_record(
         source_id=source_id or build_source_id("youtube_url", video_id),
@@ -572,12 +628,13 @@ def process_youtube_source(
         transcript, fetch_attempts = fetch_transcript(normalized_url)
     except Exception as error:
         attempts = getattr(error, "wtp_attempts", 1)
-        log(f"Error fetching transcript after {attempts} attempt(s): {type(error).__name__}: {error}")
         source["transcript_status"] = "failed"
         result = build_failure_result(
             source, provenance,
             f"Transcript fetch failed after {attempts} attempt(s): {type(error).__name__}: {error}",
-            status="transcript_failed")
+            status="transcript_failed", error=error)
+        log(f"Transcript fetch failed after {attempts} attempt(s): {short_error(error)}\n"
+            f"Next: {result['next_step']}")
         result["run"] = {"attempts": {"transcript": attempts}}
         return result, None
     source["_attempts"] = {"transcript": fetch_attempts}

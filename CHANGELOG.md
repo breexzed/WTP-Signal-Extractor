@@ -2,6 +2,11 @@
 
 All notable changes. Versions are git tags; each one has a [GitHub Release](https://github.com/breexzed/WTP-Signal-Extractor/releases).
 
+## 0.6.1 — 2026-10-14
+- Failed runs show only what failed and a wtp-specific `next_step` (new result field), instead of an empty report and the library's error text twice. The full error stays in `error`; it is no longer copied into `parse_warnings`.
+- `WTP_YT_PROXY` routes YouTube caption fetches through a proxy, the documented way around IP blocks. `wtp --check` reports `youtube_proxy_set`, never the URL.
+- Found by installing and running v0.6.0: YouTube answered `RequestBlocked` after ~8 caption fetches in a day.
+
 ## 0.6.0 — 2026-10-14
 - **Claude as the model:** `LLM_PROVIDER=anthropic` (default `claude-opus-5-5`) with schema-enforced structured outputs, streaming, and server-side refusal fallback. Not yet run against the live API.
 - **Claude Code plugin:** `/plugin install wtp --marketplace breexzed/WTP-Signal-Extractor` adds a `wtp` skill so Claude Code can run the CLI and read its evidence correctly.

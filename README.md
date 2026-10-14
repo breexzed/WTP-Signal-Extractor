@@ -8,9 +8,9 @@ AI agents to run unattended, which is why it's pleasant for people too.
 
 ## Current release
 
-- **[v0.6.0 Alpha →](https://github.com/breexzed/WTP-Signal-Extractor/releases/latest)**: Linux (tested in CI on every release); macOS should work but is untested. Python 3.14, which uv installs for you.
+- **[v0.6.1 Alpha →](https://github.com/breexzed/WTP-Signal-Extractor/releases/latest)**: Linux (tested in CI on every release); macOS should work but is untested. Python 3.14, which uv installs for you.
   ```bash
-  uv tool install git+https://github.com/breexzed/WTP-Signal-Extractor@v0.6.0
+  uv tool install git+https://github.com/breexzed/WTP-Signal-Extractor@v0.6.1
   ```
 - **Claude Code plugin**: lets Claude Code run wtp and read its evidence correctly.
   ```
@@ -112,7 +112,7 @@ uv run wtp --describe | head
 invariants, and where each piece lives. The short loop:
 
 ```bash
-uv run python -m unittest discover -s tests -t .   # 86 tests, no network, no API key
+uv run python -m unittest discover -s tests -t .   # 90 tests, no network, no API key
 uvx ruff@0.12.0 check src tests
 ```
 

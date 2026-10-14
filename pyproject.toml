@@ -1,6 +1,6 @@
 [project]
 name = "wtp-signal-extractor"
-version = "0.6.0"
+version = "0.6.1"
 description = "Extract willingness-to-pay and go-to-market signals from transcripts with schema-enforced LLM output and quote verification. Built for AI agents: --describe, --json, exit codes."
 readme = "README.md"
 license = "MIT"
