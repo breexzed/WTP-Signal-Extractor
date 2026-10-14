@@ -8,9 +8,9 @@ AI agents to run unattended, which is why it's pleasant for people too.
 
 ## Current release
 
-- **[v0.6.1 Alpha →](https://github.com/breexzed/WTP-Signal-Extractor/releases/latest)**: Linux (tested in CI on every release); macOS should work but is untested. Python 3.14, which uv installs for you.
+- **[v0.6.2 Alpha →](https://github.com/breexzed/WTP-Signal-Extractor/releases/latest)**: Linux (tested in CI on every release); macOS should work but is untested. Python 3.11 or newer (tested in CI on 3.11 and 3.14); uv installs it for you.
   ```bash
-  uv tool install git+https://github.com/breexzed/WTP-Signal-Extractor@v0.6.1
+  uv tool install git+https://github.com/breexzed/WTP-Signal-Extractor@v0.6.2
   ```
 - **Claude Code plugin**: lets Claude Code run wtp and read its evidence correctly.
   ```
@@ -69,6 +69,33 @@ $ wtp --replay raw.txt --transcript-file transcript.txt --json \
 Measured on 2026-10-14: three Gemini analyses replayed against their transcripts gave 41 quotes:
 28 verified, 6 approximate, 7 stitched, 0 invented. A tiny local model (`qwen2.5:0.5b`) returned
 schema-valid JSON on the first try but invented most of its quotes, and wtp flagged the run.
+
+## The FGP framework
+
+FGP is the author's own framework for working out where a market will pay and how to reach
+it. It runs in phases, and wtp sorts what it finds into them:
+
+- **Phase 0, Frame Selection:** who exactly the niche is and how it describes itself
+  (`pass2.subniche_culture_signals`).
+- **Phase 1, Layer Mapping:** the pain, and whether people already spend on it
+  (`pass1.behavior_signals` strong, `pass1.opinion_signals` weak).
+- **Phase 2, Friction Identification:** problems that break things for the operator's own
+  customers too (`pass2.cascade_indicators`).
+- **Phase 3, Gatekeeper Identification:** who controls access (`pass2.gatekeeper_mentions`).
+  Gatekeeper types: **Type1** owns a process others can't bypass, **Type2**'s word moves the
+  network, **Type3** controls information others need, **Type4** is a platform controlling
+  access to customers.
+- **Phase 3.5, Gatekeeper Intelligence:** what a gatekeeper protects or optimizes for
+  (`pass2.position_intelligence`).
+
+**Registers** are families of search language (complaint, operator vernacular, trade
+publication, …). wtp reports which ones a source resembles, so the companion keyword planner,
+Source Garden (private for now), can
+learn which search language finds real evidence. `wtp --describe | jq .domain` has the full glossary.
+
+**Treat every output as a hypothesis.** wtp proves a quote exists in the transcript; it doesn't
+prove demand. People's stated intent and what they actually buy differ, so confirm the strongest
+signals with real conversations or pre-sales before you build on them.
 
 ## Open source & cost
 

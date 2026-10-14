@@ -1,6 +1,6 @@
 [project]
 name = "wtp-signal-extractor"
-version = "0.6.1"
+version = "0.6.2"
 description = "Extract willingness-to-pay and go-to-market signals from transcripts with schema-enforced LLM output and quote verification. Built for AI agents: --describe, --json, exit codes."
 readme = "README.md"
 license = "MIT"
@@ -12,10 +12,13 @@ classifiers = [
     "Environment :: Console",
     "Intended Audience :: Developers",
     "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
-requires-python = ">=3.14"
+requires-python = ">=3.11"
 dependencies = [
     "anthropic>=1.13.0",
     "google-genai>=1.13.0",
@@ -40,5 +43,5 @@ build-backend = "hatchling.build"
 packages = ["src/wtp"]
 
 [tool.ruff]
-target-version = "py314"
+target-version = "py311"
 line-length = 110

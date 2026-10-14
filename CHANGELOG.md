@@ -2,6 +2,12 @@
 
 All notable changes. Versions are git tags; each one has a [GitHub Release](https://github.com/breexzed/WTP-Signal-Extractor/releases).
 
+## 0.6.2 — 2026-10-15
+From two outside reviews:
+- Python 3.11+ (was 3.14+). All tests pass on 3.11; CI now runs 3.11 and 3.14.
+- README explains the FGP framework (phases 0–3.5, gatekeeper Type1–4, registers) and says
+  plainly that outputs are hypotheses to confirm with real conversations or pre-sales.
+
 ## 0.6.1 — 2026-10-14
 - Failed runs show only what failed and a wtp-specific `next_step` (new result field), instead of an empty report and the library's error text twice. The full error stays in `error`; it is no longer copied into `parse_warnings`.
 - `WTP_YT_PROXY` routes YouTube caption fetches through a proxy, the documented way around IP blocks. `wtp --check` reports `youtube_proxy_set`, never the URL.
