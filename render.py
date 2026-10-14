@@ -201,6 +201,20 @@ def render_session_context(session_context: dict[str, Any]) -> str:
     return "\n".join(rendered)
 
 
+def render_evidence(evidence: dict[str, Any]) -> str:
+    if not evidence.get("checked"):
+        return f"- Not checked: {evidence.get('reason', 'no transcript')}"
+    lines = [
+        f"- Quotes: {evidence['total']} total, {evidence['verified']} verified, "
+        f"{evidence['approximate']} approximate, {evidence.get('stitched', 0)} stitched, "
+        f"{evidence['not_found']} not found in transcript"
+    ]
+    for item in evidence.get("items", []):
+        if item["status"] in ("not_found", "stitched"):
+            lines.append(f"- {item['status'].upper()} ({item['path']}): {item['quote']}")
+    return "\n".join(lines)
+
+
 def render_result(result: dict[str, Any]) -> str:
     source = result["source"]
     provenance = result["provenance"]
@@ -213,6 +227,9 @@ def render_result(result: dict[str, Any]) -> str:
     diagnostic_notes = diagnostics.get("diagnostic_notes") or []
 
     return (
+        f"STATUS: {result.get('status', 'ok')}\n\n"
+        "EVIDENCE CHECK\n"
+        f"{render_evidence(result.get('evidence') or {})}\n\n"
         "SOURCE\n"
         f"- Source ID: {source['source_id']}\n"
         f"- Input Type: {source['input_type']}\n"
@@ -285,6 +302,8 @@ def render_session_report(session_result: dict[str, Any]) -> str:
         "SESSION SUMMARY\n"
         f"- Session ID: {session_result['session_id']}\n"
         f"- Source Count: {session_result['source_count']}\n"
+        f"- Status Counts: {session_result.get('status_counts') or {}}\n"
+        f"- Quotes: {session_result.get('evidence_totals') or {}}\n"
         f"- Recommended Next Phase: {session_result['recommended_next_phase']}\n"
         f"- Manifest Path: {manifest_path}\n\n"
         "SESSION CONTEXT\n"

@@ -5,13 +5,15 @@ from typing import Any
 
 from diagnostics import aggregate_named_entities, most_common_phase
 
+STRENGTH_RANK = {"low": 0, "medium": 1, "high": 2}
+
 
 def aggregate_source_results(
     results: list[dict[str, Any]],
     session_id: str = "single-source-session",
 ) -> dict[str, Any]:
     register_counts: defaultdict[str, dict[str, Any]] = defaultdict(
-        lambda: {"register": "", "matched_signals": 0, "source_hits": 0}
+        lambda: {"register": "", "matched_signals": 0, "source_hits": 0, "strength": "low"}
     )
     gatekeeper_counter: Counter[str] = Counter()
     source_type_counter: Counter[str] = Counter()
@@ -33,6 +35,10 @@ def aggregate_source_results(
             bucket["register"] = register
             bucket["matched_signals"] += int(item["matched_signals"])
             bucket["source_hits"] += 1
+            # Session strength = the strongest any single source showed.
+            strength = str(item.get("strength", "low")).lower()
+            if STRENGTH_RANK.get(strength, 0) > STRENGTH_RANK[bucket["strength"]]:
+                bucket["strength"] = strength
 
         for gatekeeper in result["diagnostics"]["gatekeepers"]:
             gatekeeper_counter[gatekeeper["gatekeeper_type"]] += 1
@@ -68,9 +74,18 @@ def aggregate_source_results(
     if not aggregate_notes:
         aggregate_notes.append("No major aggregate diagnostic issues were detected across the current source set.")
 
+    status_counts = Counter(result.get("status", "ok") for result in results)
+    evidence_totals = {
+        key: sum(result.get("evidence", {}).get(key, 0) for result in results)
+        for key in ("total", "verified", "approximate", "stitched", "not_found")
+    }
+
     return {
+        "schema_version": "2",
         "session_id": session_id,
         "source_count": len(results),
+        "status_counts": dict(status_counts),
+        "evidence_totals": evidence_totals,
         "register_performance": register_performance,
         "gatekeeper_type_distribution": gatekeeper_type_distribution,
         "recurring_entities": recurring_entities,
@@ -98,6 +113,9 @@ def build_session_result(
             "source_type": result["source"]["source_type"],
             "speaker_type": result["source"]["speaker_type"],
             "url": result["source"]["url"],
+            "status": result.get("status", "ok"),
+            "json_path": result.get("artifacts", {}).get("json_path"),
+            "transcript_path": result["source"].get("transcript_path"),
         }
         for result in results
     ]

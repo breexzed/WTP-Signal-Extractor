@@ -4,13 +4,14 @@ import io
 import json
 import shutil
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import main
+from contract import EXIT_DEGRADED, EXIT_OK, EXIT_USAGE
 from aggregate import aggregate_source_results, build_session_result
 from diagnostics import build_diagnostics
 from extract import parse_model_output
@@ -170,7 +171,7 @@ class MainTests(unittest.TestCase):
         config = main.get_provider_config()
 
         self.assertEqual(config.provider_name, "gemini")
-        self.assertEqual(config.model_name, "gemini-2.5-flash")
+        self.assertEqual(config.model_name, "gemini-3.8-flash")
         self.assertEqual(config.api_key, "gem-key")
         self.assertIsNone(config.base_url)
 
@@ -485,20 +486,23 @@ class MainTests(unittest.TestCase):
             temp_file.unlink(missing_ok=True)
 
     def test_batch_mode_with_no_urls_stays_visible(self):
-        stdout = io.StringIO()
+        stdout, stderr = io.StringIO(), io.StringIO()
 
-        with redirect_stdout(stdout):
-            main.main(["--urls-file", "missing-file.txt"])
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            code = main.main(["--urls-file", "missing-file.txt"])
 
-        self.assertIn("URLs file not found", stdout.getvalue())
+        self.assertEqual(code, EXIT_USAGE)
+        self.assertIn("URLs file not found", stderr.getvalue())
+        self.assertEqual(stdout.getvalue(), "")   # stdout stays clean for parsers
 
     def test_session_manifest_missing_file_stays_visible(self):
-        stdout = io.StringIO()
+        stdout, stderr = io.StringIO(), io.StringIO()
 
-        with redirect_stdout(stdout):
-            main.main(["--session", "missing-session.json"])
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            code = main.main(["--session", "missing-session.json"])
 
-        self.assertIn("Session manifest not found", stdout.getvalue())
+        self.assertEqual(code, EXIT_USAGE)
+        self.assertIn("Session manifest not found", stderr.getvalue())
 
     def test_end_to_end_mocked_cli_flow_writes_text_and_json(self):
         temp_dir = Path("test-output-cli")
@@ -507,17 +511,20 @@ class MainTests(unittest.TestCase):
         try:
             real_write_artifacts = write_artifacts
 
-            def write_to_temp(result, text_report):
+            def write_to_temp(result, text_report, **kwargs):
                 return real_write_artifacts(
                     result,
                     text_report,
                     output_dir=temp_dir,
                     session_id="cli-session",
                     timestamp=datetime(2026, 5, 7, 12, 0, 1),
+                    transcript=kwargs.get("transcript"),
                 )
 
             stdout = io.StringIO()
             with patch("builtins.input", side_effect=["2", "We paid for two tools and still depend on Zocdoc.", "End"]), patch(
+                "sys.stdin.isatty", return_value=True,
+            ), redirect_stderr(io.StringIO()), patch(
                 "main.call_model",
                 return_value=SAMPLE_RAW_OUTPUT,
             ), patch(
@@ -527,7 +534,7 @@ class MainTests(unittest.TestCase):
                 main.main()
 
             files = list(Path(temp_dir).iterdir())
-            self.assertEqual(len(files), 2)
+            self.assertEqual(len(files), 3)   # report, JSON, transcript
             output = stdout.getvalue()
             self.assertIn("=== RESULTS ===", output)
             self.assertIn("Artifacts saved:", output)
@@ -551,6 +558,7 @@ class MainTests(unittest.TestCase):
                     output_dir=temp_dir,
                     session_id=kwargs.get("session_id"),
                     timestamp=datetime(2026, 5, 7, 12, 0, 3),
+                    transcript=kwargs.get("transcript"),
                 )
 
             def write_session_to_temp(session_result, text_report, **kwargs):
@@ -575,7 +583,7 @@ class MainTests(unittest.TestCase):
             ), patch(
                 "main.write_session_artifacts",
                 side_effect=write_session_to_temp,
-            ), redirect_stdout(stdout):
+            ), redirect_stdout(stdout), redirect_stderr(io.StringIO()):
                 main.main(
                     [
                         "--urls",
@@ -585,7 +593,7 @@ class MainTests(unittest.TestCase):
                 )
 
             files = list(Path(temp_dir).iterdir())
-            self.assertEqual(len(files), 6)
+            self.assertEqual(len(files), 8)   # 2 sources x (report, JSON, transcript) + session x 2
             output = stdout.getvalue()
             self.assertIn("=== SESSION RESULTS ===", output)
             self.assertIn("Session artifacts saved:", output)
@@ -639,12 +647,13 @@ class MainTests(unittest.TestCase):
                 main,
                 "DEFAULT_REPORTS_DIR",
                 str(temp_dir / "reports"),
-            ), redirect_stdout(stdout):
+            ), redirect_stdout(stdout), redirect_stderr(io.StringIO()):
                 main.main(["--session", str(manifest_path)])
 
             report_dir = temp_dir / "reports" / "research-session-1"
             files = list(report_dir.iterdir())
-            self.assertEqual(len(files), 6)
+            self.assertEqual(len(files), 8)
+            self.assertEqual(len(list(report_dir.glob("*.transcript.txt"))), 2)
 
             session_payload = json.loads(
                 next(report_dir.glob("wtp-session-report-*.json")).read_text(encoding="utf-8")
@@ -660,9 +669,7 @@ class MainTests(unittest.TestCase):
                 "cluster-1",
             )
 
-            output = stdout.getvalue()
-            self.assertIn("=== SESSION RESULTS ===", output)
-            self.assertIn("Reports directory:", output)
+            self.assertIn("=== SESSION RESULTS ===", stdout.getvalue())
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 

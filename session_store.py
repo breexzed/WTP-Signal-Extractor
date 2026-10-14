@@ -31,6 +31,7 @@ def _write_payload(
     output_dir: str | Path,
     session_id: str | None,
     timestamp: datetime | None,
+    transcript: str | None = None,
 ) -> dict[str, str]:
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -39,13 +40,20 @@ def _write_payload(
     text_path = output_path / f"{stem}.txt"
     json_path = output_path / f"{stem}.json"
 
+    paths = {"text_path": str(text_path), "json_path": str(json_path)}
+    if transcript:
+        # Saved beside the result so quotes can be re-checked without refetching.
+        transcript_path = output_path / f"{stem}.transcript.txt"
+        transcript_path.write_text(transcript, encoding="utf-8")
+        paths["transcript_path"] = str(transcript_path)
+    if isinstance(payload.get("artifacts"), dict):
+        payload["artifacts"].update(paths)
+    if transcript and isinstance(payload.get("source"), dict):
+        payload["source"]["transcript_path"] = paths["transcript_path"]
+
     text_path.write_text(text_report, encoding="utf-8")
     json_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-
-    return {
-        "text_path": str(text_path),
-        "json_path": str(json_path),
-    }
+    return paths
 
 
 def write_artifacts(
@@ -54,6 +62,7 @@ def write_artifacts(
     output_dir: str | Path = "outputs",
     session_id: str | None = None,
     timestamp: datetime | None = None,
+    transcript: str | None = None,
 ) -> dict[str, str]:
     return _write_payload(
         result,
@@ -62,6 +71,7 @@ def write_artifacts(
         output_dir=output_dir,
         session_id=session_id,
         timestamp=timestamp,
+        transcript=transcript,
     )
 
 

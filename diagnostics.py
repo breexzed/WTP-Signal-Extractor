@@ -11,7 +11,11 @@ from schemas import (
     ENTITY_RELATIONSHIP_VALUES,
     GATEKEEPER_RELATIONSHIP_VALUES,
     GATEKEEPER_TYPE_VALUES,
+    PHASE_VALUES,
     REGISTER_NAMES,
+    SIGNAL_DENSITY_VALUES,
+    SOURCE_TYPE_VALUES,
+    SPEAKER_TYPE_VALUES,
 )
 
 
@@ -87,6 +91,18 @@ def normalize_entity_kind(value: str | None, entity_name: str = "") -> str:
     return "other"
 
 
+def model_hint(hints: dict[str, Any], key: str, allowed: set[str]) -> str | None:
+    """The model's value for key if it is in the allowed vocabulary, else None.
+    A missing or invalid answer must not pass for a real one."""
+    value = hints.get(key)
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    if key != "phase_fit":
+        normalized = normalized.lower()
+    return normalized if normalized in allowed else None
+
+
 def infer_gatekeeper_type(dependency_type: str, entity_kind: str) -> str:
     if dependency_type == "platform" or entity_kind == "platform":
         return "Type4"
@@ -100,8 +116,8 @@ def infer_gatekeeper_type(dependency_type: str, entity_kind: str) -> str:
 
 
 def infer_source_type(transcript_text: str, diagnostic_hints: dict[str, Any]) -> str:
-    hinted = str(diagnostic_hints.get("source_type", "unknown")).strip().lower()
-    if hinted in {"operator_interview", "panel", "vendor_demo", "trade_discussion", "unknown"}:
+    hinted = model_hint(diagnostic_hints, "source_type", SOURCE_TYPE_VALUES)
+    if hinted:
         return hinted
 
     lowered = transcript_text.lower()
@@ -117,8 +133,8 @@ def infer_source_type(transcript_text: str, diagnostic_hints: dict[str, Any]) ->
 
 
 def infer_speaker_type(parsed: dict[str, Any], transcript_text: str, source_type: str) -> str:
-    hinted = str(parsed["diagnostic_hints"].get("speaker_type", "unknown")).strip().lower()
-    if hinted in {"operator", "intermediary", "mixed", "unknown"}:
+    hinted = model_hint(parsed["diagnostic_hints"], "speaker_type", SPEAKER_TYPE_VALUES)
+    if hinted:
         return hinted
 
     if parsed["pass2"]["position_intelligence"] and parsed["pass2"]["gatekeeper_mentions"]:
@@ -137,8 +153,8 @@ def infer_speaker_type(parsed: dict[str, Any], transcript_text: str, source_type
 
 
 def infer_phase_fit(parsed: dict[str, Any]) -> str:
-    hinted = str(parsed["diagnostic_hints"].get("phase_fit", "unknown")).strip()
-    if hinted in {"0", "1", "2", "3", "3.5", "mixed", "unknown"}:
+    hinted = model_hint(parsed["diagnostic_hints"], "phase_fit", PHASE_VALUES)
+    if hinted:
         return hinted
 
     phases = set()
@@ -161,8 +177,8 @@ def infer_phase_fit(parsed: dict[str, Any]) -> str:
 
 
 def infer_signal_density(parsed: dict[str, Any]) -> str:
-    hinted = str(parsed["diagnostic_hints"].get("signal_density", "low")).strip().lower()
-    if hinted in {"low", "medium", "high"}:
+    hinted = model_hint(parsed["diagnostic_hints"], "signal_density", SIGNAL_DENSITY_VALUES)
+    if hinted:
         return hinted
 
     total_signals = sum(
@@ -349,7 +365,10 @@ def derive_register_alignment(
 
 
 def extract_recommended_phase(next_action: str) -> str:
-    match = re.search(r"\b(3\.5|0|1|2|3)\b", next_action)
+    # Prefer an explicit "Phase N"; a bare digit ("run 2 more interviews") is a guess.
+    match = re.search(r"\bphase\s*(3\.5|[0-3])\b", next_action, flags=re.IGNORECASE)
+    if not match:
+        match = re.search(r"\b(3\.5|0|1|2|3)\b", next_action)
     if match:
         return match.group(1)
     return "unknown"
@@ -425,6 +444,7 @@ def build_diagnostics(parsed: dict[str, Any], transcript_text: str, provenance: 
     recommended_next_phase = extract_recommended_phase(
         parsed["pass2"]["summary"].get("recommended_next_action", "")
     )
+    phase_from_model = recommended_next_phase != "unknown"
     diagnostic_notes = list(parsed["diagnostic_hints"].get("diagnostic_notes") or [])
 
     if gatekeepers and recommended_next_phase == "unknown":
@@ -438,7 +458,34 @@ def build_diagnostics(parsed: dict[str, Any], transcript_text: str, provenance: 
     if parsed["pass1"]["behavior_signals"] and recommended_next_phase == "unknown":
         recommended_next_phase = "1"
 
+    hints = parsed["diagnostic_hints"]
+
+    def origin(key: str, allowed: set[str], value: str, empty: str = "unknown") -> str:
+        if model_hint(hints, key, allowed):
+            return "llm"
+        return "default" if value == empty else "heuristic"
+
+    def list_origin(key: str, value: list) -> str:
+        if hints.get(key) and value:
+            return "llm" if any(v for v in hints[key]) else "heuristic"
+        return "heuristic" if value else "default"
+
+    # Which values the model stated and which this module inferred. An agent
+    # should weigh a heuristic guess below the model's direct answer.
+    field_sources = {
+        "source_type": origin("source_type", SOURCE_TYPE_VALUES, source_type),
+        "speaker_type": origin("speaker_type", SPEAKER_TYPE_VALUES, speaker_type),
+        "phase_fit": origin("phase_fit", PHASE_VALUES, phase_fit),
+        "signal_density": origin("signal_density", SIGNAL_DENSITY_VALUES, signal_density, empty=""),
+        "named_entities": list_origin("named_entities", named_entities),
+        "gatekeepers": list_origin("gatekeepers", gatekeepers),
+        "register_alignment": list_origin("register_alignment", register_alignment),
+        "recommended_next_phase": "llm" if phase_from_model
+        else ("default" if recommended_next_phase == "unknown" else "heuristic"),
+    }
+
     return {
+        "field_sources": field_sources,
         "phase_fit": phase_fit,
         "signal_density": signal_density,
         "register_alignment": register_alignment,

@@ -110,9 +110,11 @@ def parse_labeled_blocks(section_text: str, expected_fields: list[str]) -> list[
             value = match.group(2).strip()
             if label in expected:
                 canonical = expected[label]
-                if canonical in {"QUOTE", "NAME", "ENTITY", "REGISTER"}:
-                    if current:
-                        blocks.append(current)
+                # A label seen twice means a new record. (Starting a record on
+                # fixed labels like ENTITY split every position_intelligence
+                # signal, where ENTITY follows QUOTE, into two halves.)
+                if current is not None and canonical in current:
+                    blocks.append(current)
                     current = {}
                 if current is None:
                     current = {}
@@ -423,10 +425,12 @@ def parse_model_output(raw_output: str) -> dict[str, Any]:
             "hypothesis_worth_testing": hypothesis,
         },
         "diagnostic_hints": {
-            "source_type": source_diagnostics.get("source_type", "unknown"),
-            "speaker_type": source_diagnostics.get("speaker_type", "unknown"),
-            "phase_fit": source_diagnostics.get("phase_fit", "unknown"),
-            "signal_density": source_diagnostics.get("signal_density", "low"),
+            # None when the model gave nothing, so diagnostics.py can tell a
+            # real answer from a missing one and fall back to its heuristics.
+            "source_type": source_diagnostics.get("source_type"),
+            "speaker_type": source_diagnostics.get("speaker_type"),
+            "phase_fit": source_diagnostics.get("phase_fit"),
+            "signal_density": source_diagnostics.get("signal_density"),
             "named_entities": named_entities,
             "gatekeepers": gatekeeper_objects,
             "register_alignment": register_alignment,

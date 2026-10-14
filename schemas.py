@@ -78,6 +78,7 @@ def empty_search_language_feedback() -> dict[str, Any]:
 
 def empty_result() -> dict[str, Any]:
     return {
+        "schema_version": "2",
         "source": {
             "source_id": "",
             "url": None,
@@ -86,6 +87,8 @@ def empty_result() -> dict[str, Any]:
             "transcript_status": "pasted",
             "source_type": "unknown",
             "speaker_type": "unknown",
+            "transcript_chars": 0,
+            "transcript_path": None,
         },
         "provenance": {
             "origin_cluster_id": None,
@@ -122,6 +125,7 @@ def empty_result() -> dict[str, Any]:
             "search_language_feedback": empty_search_language_feedback(),
             "recommended_next_phase": "unknown",
             "diagnostic_notes": [],
+            "field_sources": {},
         },
         "combined_summary": {
             "top_3_actionable_signals": [],
@@ -129,6 +133,11 @@ def empty_result() -> dict[str, Any]:
         },
         "parse_warnings": [],
         "raw_output": None,
+        "status": "ok",
+        "evidence": {"checked": False, "total": 0, "verified": 0, "approximate": 0,
+                     "stitched": 0, "not_found": 0, "items": []},
+        "run": {},
+        "artifacts": {},
     }
 
 

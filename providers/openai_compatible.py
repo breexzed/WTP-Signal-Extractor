@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from providers.base import ProviderConfig
 
 try:
@@ -25,10 +27,12 @@ class OpenAICompatibleProvider:
             base_url=config.base_url,
         )
 
-    def generate(self, prompt: str, system_instruction: str) -> str:
+    def generate(self, prompt: str, system_instruction: str, schema: dict[str, Any]) -> str:
         response = self._client.responses.create(
             model=self._config.model_name,
             input=prompt,
             instructions=system_instruction,
+            text={"format": {"type": "json_schema", "name": "wtp_analysis",
+                             "schema": schema, "strict": True}},
         )
         return getattr(response, "output_text", "") or ""

@@ -1,728 +1,160 @@
 # WTP Signal Extractor
 
-WTP Signal Extractor is a Gemini-first Python CLI that analyzes transcript sources and produces:
-- a human-readable report for terminal review
-- a canonical JSON artifact for downstream systems
+**Turns an interview or video transcript into checked evidence of willingness to pay.**
 
-The repo is no longer just a formatting wrapper around a transcript prompt.
-It now acts as the structured evaluator and diagnostics half of a future closed-loop system with `source-garden-intelligence`.
+It asks an LLM where people show they would pay to fix a problem (and who stands in their way),
+then **checks the answer itself**: every quote is matched against the transcript, and every
+judgment is labelled with where it came from. It's built for an AI agent to run unattended, which
+is also why it's pleasant for a person to run.
 
-## What The Repo Does Today
-
-The current implementation supports:
-- YouTube URL input
-- pasted transcript input
-- multi-URL batch input through CLI flags
-- optional JSON session manifest input
-- transcript fetching through `youtube-transcript-api`
-- Gemini analysis using a structured multi-pass prompt
-- Windows-safe terminal rendering
-- text artifact persistence
-- canonical JSON artifact persistence
-- parse warnings and raw-output preservation
-- Source Garden-compatible diagnostics
-- session-wide aggregation and consolidated reporting
-
-The current unit of work can now be either:
-- a single interactive source run
-- a multi-source batch session over YouTube URLs
-- a manifest-driven session run with optional Source Garden context
-
-This repo still does **not** yet implement concurrent transcript fetching.
-
-## Compatibility Goal
-
-This repo is designed to interoperate later with `source-garden-intelligence` without creating a hardcoded cross-repo dependency.
-
-The intended relationship is:
-- Source Garden decides where to look
-- WTP decides what was actually found and what to do next
-
-That means WTP now emits structured diagnostics that can eventually help Source Garden answer:
-- which registers underperformed
-- which gatekeeper types appeared
-- which source types produced the strongest signals
-- what search language was too generic
-- what named entities started recurring
-
-## Current Status
-
-This repo is currently:
-- a working CLI
-- a per-source structured extractor
-- a diagnostic producer for future loop feedback
-- a JSON-first artifact generator
-- a provider-abstracted model caller with Gemini and OpenAI-compatible adapters
-- a batch-capable session runner for YouTube sources
-- a manifest-capable session runner with optional Source Garden-compatible metadata
-
-This repo is **not yet**:
-- a session-context collection CLI like Source Garden
-- a fully schema-enforced LLM output system
-
-## Architecture
-
-Current file responsibilities:
-
-- [main.py](C:/Users/Owl/playbook/wtp-signal-extractor/main.py): CLI orchestration, interactive/batch/manifest input handling, provider-routed model calls, progress spinner, failure handling, per-source and session artifact persistence
-- [prompt.py](C:/Users/Owl/playbook/wtp-signal-extractor/prompt.py): system prompt for the two-pass extraction plus diagnostics sections
-- [schemas.py](C:/Users/Owl/playbook/wtp-signal-extractor/schemas.py): canonical result shape and allowed vocabularies
-- [extract.py](C:/Users/Owl/playbook/wtp-signal-extractor/extract.py): raw model-output parsing into structured sections
-- [diagnostics.py](C:/Users/Owl/playbook/wtp-signal-extractor/diagnostics.py): diagnostic derivation, normalization, register alignment, entity/gatekeeper heuristics
-- [render.py](C:/Users/Owl/playbook/wtp-signal-extractor/render.py): human-readable report rendering
-- [session_store.py](C:/Users/Owl/playbook/wtp-signal-extractor/session_store.py): text/JSON artifact writing
-- [aggregate.py](C:/Users/Owl/playbook/wtp-signal-extractor/aggregate.py): aggregate rollups across one or more source results
-- [providers/base.py](C:/Users/Owl/playbook/wtp-signal-extractor/providers/base.py): provider config and interface contract
-- [providers/gemini.py](C:/Users/Owl/playbook/wtp-signal-extractor/providers/gemini.py): Gemini adapter
-- [providers/openai_compatible.py](C:/Users/Owl/playbook/wtp-signal-extractor/providers/openai_compatible.py): OpenAI-compatible adapter using the official OpenAI Python SDK
-- [test_main.py](C:/Users/Owl/playbook/wtp-signal-extractor/test_main.py): parser, diagnostics, persistence, mocked CLI, and aggregation tests
-
-## Runtime Flow
-
-Each run currently follows one of three shapes:
-
-1. Accept one source interactively:
-- YouTube URL
-- or pasted transcript text
-
-2. Accept many YouTube URLs non-interactively:
-- `--urls`
-- `--urls-file`
-
-3. Accept a JSON session manifest:
-- `--session`
-- optional Source Garden context
-- one or more sources containing `url` and/or `transcript`
-
-4. Build source metadata:
-- `source_id`
-- URL/video information if present
-- transcript status
-- provenance placeholders
-
-5. Run the configured provider against the structured market-intelligence prompt.
-   The model call now goes through a provider abstraction layer.
-
-6. Parse the model output into:
-- Pass 1
-- Pass 2
-- combined summary
-- diagnostics hints
-
-7. Derive structured diagnostics:
-- named entities
-- gatekeepers
-- phase fit
-- register alignment
-- search-language feedback
-- recommended next phase
-
-8. Render readable text output:
-- per-source reports for single-source runs
-- a session-wide synthesis report for batch runs
-
-9. Persist JSON-first artifacts:
-- one `.txt` and one `.json` per source
-- one `.txt` and one `.json` session report per batch run
-- one `.txt` and one `.json` session report per manifest run
-
-## Input Modes
-
-### YouTube URL
-
-The CLI accepts one YouTube URL, extracts the video ID, fetches the transcript, and analyzes it.
-
-Supported URL forms include:
-- `https://www.youtube.com/watch?v=...`
-- `https://youtu.be/...`
-
-If transcript fetching fails:
-- the CLI still produces a visible failure result
-- the failure is persisted as a structured artifact
-- the run does not fail silently
-
-### Pasted Transcript
-
-The CLI accepts manual transcript paste input line-by-line until the user enters `End`.
-
-The pasted flow preserves the same analysis and artifact-writing behavior as the YouTube path.
-
-### Batch URL CLI
-
-The CLI also accepts many YouTube URLs in one run:
-
-```powershell
-uv run python main.py --urls https://youtu.be/... https://www.youtube.com/watch?v=...
+```console
+$ uv run python main.py --replay raw.txt --transcript-file transcript.txt --json \
+    | jq -c '{status, evidence: .evidence | {total, verified, approximate, stitched, not_found}}'
+{"status":"ok","evidence":{"total":13,"verified":10,"approximate":1,"stitched":2,"not_found":0}}
 ```
+<sub>Real output: a saved Gemini answer about wedding-industry lead platforms (video `939LlYN1aK8`),
+re-checked offline against its transcript.</sub>
 
-or from a file:
+---
 
-```powershell
-uv run python main.py --urls-file urls.txt
-```
+## Why it exists
 
-Batch mode currently:
-- normalizes and deduplicates URLs
-- processes each source serially
-- writes one per-source text artifact and one per-source JSON artifact
-- aggregates the resulting source diagnostics into one session summary
-- writes one session text artifact and one session JSON artifact
+Customers say they want many things. They **pay** for few. The tell is behavior, not opinion:
+money already spent, tools bought and dropped, workarounds kept alive, "it cost us a client".
+This tool pulls those moments out of long transcripts, separates them from wishful talk, and
+maps them onto a go-to-market pipeline (FGP):
 
-Batch mode is intentionally visible about failures.
-If one source fails transcript fetch or analysis, that source still gets a structured failure artifact and the rest of the session continues.
+| Phase | Question it answers | Where it lands in the result |
+|---|---|---|
+| 0 | Who exactly is this niche, and how do they see themselves? | `pass2.subniche_culture_signals` |
+| 1 | Is the pain real enough that they already pay? | `pass1.behavior_signals` vs `opinion_signals` |
+| 2 | Does the pain break things for *their* customers too? | `pass2.cascade_indicators` |
+| 3 | Who controls access (platforms, distributors, certifiers)? | `pass2.gatekeeper_mentions` |
+| 3.5 | What does that gatekeeper protect? | `pass2.position_intelligence` |
 
-### Session Manifest CLI
+It is the judging half of a planned loop with **Source Garden** (which decides *where* to look);
+the `provenance` and `diagnostics.search_language_feedback` fields are that feedback path.
 
-The CLI also accepts a JSON session manifest:
+## Built for agents: no context left behind
 
-```powershell
-uv run python main.py --session session.json
-```
+An agent knows only what a tool tells it: the help text, stdout, stderr, the exit code, the
+files it writes and the docs. Each of those is designed so an agent never has to guess.
 
-Manifest mode is optional, not required for core use. If no Source Garden data is present, the tool still works as long as the manifest contains a `sources` list.
+| Non-negotiable | What it means here |
+|---|---|
+| **Control surface** | Every input is a flag (`--url`, `--transcript-file PATH\|-`, `--urls`, `--session`). It never waits for typing unless a person is at a terminal. `--check` tests config with no network; `--replay` re-parses a saved answer with no API call. |
+| **Output contract** | `--json` puts exactly one JSON document on stdout; logs go to stderr. Exit codes: `0` ok, `1` degraded, `2` usage, `3` transcript failed, `4` model failed (a batch exits with the worst). Every result carries `status`, `schema_version` and the paths of every file written. |
+| **Trust signals** | Quotes are graded against the transcript (`verified` / `approximate` / `stitched` / `not_found`). Each diagnostic says whether the `llm` or a `heuristic` produced it. `run` records model, prompt+schema hash, attempts and mode. Failures are results with an `error`, never tracebacks. |
+| **Domain knowledge** | `--describe` prints the whole contract as JSON: flags, exit codes, every allowed value, every field, the FGP phases, gatekeeper types and registers. [AGENTS.md](AGENTS.md) is the operating manual. |
 
-A minimal manifest can be:
+## Quickstart
 
-```json
-{
-  "sources": [
-    {
-      "url": "https://youtu.be/dQw4w9WgXcQ"
-    },
-    {
-      "transcript": "We paid for two tools and still depend on Zocdoc."
-    }
-  ]
-}
-```
-
-A richer manifest can carry future loop metadata:
-
-```json
-{
-  "session_id": "research-session-1",
-  "session_context": {
-    "vertical": "dental",
-    "operator_type": "clinic_owner",
-    "targeted_subniche": "premium_clinic",
-    "fgp_phase": "3",
-    "gatekeeper_type": "Type4",
-    "currency_window": "2026-Q2",
-    "session_date": "2026-05-11",
-    "prior_loop_map_phase": "2"
-  },
-  "sources": [
-    {
-      "source_id": "source-url-1",
-      "url": "https://youtu.be/dQw4w9WgXcQ",
-      "provenance": {
-        "origin_cluster_id": "cluster-1",
-        "origin_register": "complaint_register",
-        "query_used": "premium clinic booking dependency"
-      }
-    }
-  ]
-}
-```
-
-Manifest mode currently:
-- accepts source-level `url` or `transcript`
-- accepts optional source-level `source_id`
-- accepts optional source-level `provenance`
-- accepts optional session-level `session_context`
-- writes artifacts under `reports/<session-id>/`
-- keeps working even when all Source Garden-specific fields are absent
-
-## Prompt Shape
-
-The current prompt preserves these major sections:
-
-- `PASS 1: WILLINGNESS-TO-PAY SIGNALS`
-- `PASS 2: FGP PIPELINE INTELLIGENCE`
-- `COMBINED INTELLIGENCE SUMMARY`
-
-It also asks the model for structured diagnostics support blocks:
-- source diagnostics
-- named entities
-- gatekeeper objects
-- register alignment
-- search language feedback
-- diagnostic notes
-
-The parser does **not** trust the model completely.
-It treats the model output as recoverable-but-fallible input.
-
-## Canonical Output Contract
-
-Each run produces a canonical per-source JSON object with this top-level shape:
-
-```json
-{
-  "source": {},
-  "provenance": {},
-  "pass1": {},
-  "pass2": {},
-  "diagnostics": {},
-  "combined_summary": {},
-  "parse_warnings": [],
-  "raw_output": "..."
-}
-```
-
-### `source`
-
-Includes:
-- `source_id`
-- `url`
-- `video_id`
-- `input_type`
-- `transcript_status`
-- `source_type`
-- `speaker_type`
-
-Allowed `input_type` values:
-- `youtube_url`
-- `pasted_transcript`
-
-Allowed `transcript_status` values:
-- `fetched`
-- `pasted`
-- `failed`
-
-Allowed `source_type` values:
-- `operator_interview`
-- `panel`
-- `vendor_demo`
-- `trade_discussion`
-- `unknown`
-
-Allowed `speaker_type` values:
-- `operator`
-- `intermediary`
-- `mixed`
-- `unknown`
-
-### `provenance`
-
-Includes:
-- `origin_cluster_id`
-- `origin_register`
-- `query_used`
-
-These are placeholders today and are usually `null` in the CLI.
-They exist so Source Garden can supply them later without redesigning the contract.
-
-### `pass1`
-
-Includes:
-- `behavior_signals`
-- `opinion_signals`
-- `summary`
-
-This is the WTP-focused half of the output.
-
-### `pass2`
-
-Includes:
-- `cascade_indicators`
-- `gatekeeper_mentions`
-- `position_intelligence`
-- `subniche_culture_signals`
-- `summary`
-
-This is the FGP pipeline-intelligence half of the output.
-
-### `diagnostics`
-
-Includes:
-- `phase_fit`
-- `signal_density`
-- `register_alignment`
-- `named_entities`
-- `gatekeepers`
-- `search_language_feedback`
-- `recommended_next_phase`
-- `diagnostic_notes`
-
-### `combined_summary`
-
-Includes:
-- `top_3_actionable_signals`
-- `hypothesis_worth_testing`
-
-### `parse_warnings`
-
-Explicitly records parser drift or structural recovery concerns.
-
-### `raw_output`
-
-Preserves the original model output for debugging and auditability.
-
-## Diagnostics Behavior
-
-The diagnostics layer is intentionally conservative.
-
-It prefers:
-- explicit transcript evidence
-- explicit model-provided support
-- fallbacks only when needed
-
-It avoids:
-- inventing named entities
-- inventing register names
-- pretending uncertainty does not exist
-
-### Phase Fit
-
-`phase_fit` can be:
-- `0`
-- `1`
-- `2`
-- `3`
-- `3.5`
-- `mixed`
-- `unknown`
-
-It is inferred from the parsed content when the model does not provide a clean answer.
-
-### Signal Density
-
-`signal_density` can be:
-- `low`
-- `medium`
-- `high`
-
-It is derived from the amount of usable structured signal recovered from the source.
-
-### Named Entities
-
-Each named entity object includes:
-- `name`
-- `entity_kind`
-- `relationship`
-- `supporting_quote`
-- `confidence`
-
-Allowed `entity_kind` values:
-- `platform`
-- `software`
-- `institution`
-- `distributor`
-- `person`
-- `certification_body`
-- `other`
-
-Allowed `relationship` values:
-- `dependent`
-- `frustrated`
-- `switching`
-- `praise`
-- `unknown`
-
-If the model does not provide entity objects, some entities can be derived from gatekeeper mentions.
-If evidence is weak, entities should be omitted rather than guessed.
-
-### Gatekeepers
-
-Each gatekeeper object includes:
-- `entity`
-- `dependency_type`
-- `gatekeeper_type`
-- `operator_relationship`
-- `supporting_quote`
-- `confidence`
-
-Allowed `dependency_type` values:
-- `structural_friction`
-- `social_authority`
-- `information_asymmetry`
-- `platform`
-- `unknown`
-
-Allowed `gatekeeper_type` values:
-- `Type1`
-- `Type2`
-- `Type3`
-- `Type4`
-- `unknown`
-
-The type mapping is Source Garden-compatible:
-- `Type1`: owns a process others cannot bypass
-- `Type2`: their word moves the network
-- `Type3`: controls information others need
-- `Type4`: platform controlling access to customers
-
-Allowed `operator_relationship` values:
-- `dependent`
-- `frustrated`
-- `loyal`
-- `switching_away`
-- `unknown`
-
-### Register Alignment
-
-Register alignment uses **only** the Source Garden-compatible register names:
-
-- `operator_vernacular`
-- `industry_professional`
-- `complaint_register`
-- `consequence_register`
-- `intermediary_register`
-- `trade_publication`
-- `job_listing_register`
-- `year_specific`
-- `gatekeeper_self_description`
-
-No new register names are invented.
-
-Each register-alignment object includes:
-- `register`
-- `matched_signals`
-- `strength`
-
-### Search Language Feedback
-
-This object includes:
-- `likely_too_generic`
-- `too_vendor_heavy`
-- `off_phase`
-- `likely_operator_facing`
-- `likely_gatekeeper_facing`
-- `reason`
-
-This is heuristic today.
-It is meant to feed future loop correction, not to act as absolute truth.
-
-## Aggregation
-
-This repo now includes session-compatible aggregation in [aggregate.py](C:/Users/Owl/playbook/wtp-signal-extractor/aggregate.py:1).
-
-It can aggregate one or more source results into:
-- `session_id`
-- `source_count`
-- `register_performance`
-- `gatekeeper_type_distribution`
-- `recurring_entities`
-- `source_type_performance`
-- `query_feedback`
-- `recommended_next_phase`
-- `aggregate_notes`
-
-This is now exposed through the batch CLI path and is still reusable programmatically.
-
-## Artifact Writing
-
-Each run writes:
-- a rendered text report
-- a canonical JSON artifact
-
-Default output directories:
-- `outputs/`
-- `reports/<session-id>/` for manifest-driven session runs
-
-Naming pattern:
-- `wtp-analysis-<timestamp>.txt`
-- `wtp-analysis-<timestamp>.json`
-- `wtp-session-report-<session-id>-<timestamp>.txt`
-- `wtp-session-report-<session-id>-<timestamp>.json`
-
-In batch mode, per-source artifacts are also given stable source-based IDs so multiple sources processed in the same second do not collide.
-In manifest mode, the session report and per-source artifacts live together under a dedicated session directory.
-
-JSON is the source of truth.
-The text file is the presentation layer.
-
-## Failure Philosophy
-
-This repo follows the same general philosophy as Source Garden:
-- no silent failure
-- preserve raw output when parsing breaks
-- emit parse warnings explicitly
-- keep malformed sections visible
-- salvage what can be salvaged
-
-Failure states are represented as structured outputs, not just terminal messages.
-
-Examples:
-- invalid YouTube URL
-- transcript fetch failure
-- parse drift
-- model failure
-
-## Current CLI Behavior
-
-The interactive flow is still simple:
-
-1. choose input method
-2. provide one source
-3. wait for analysis
-4. review rendered report in terminal
-5. inspect saved `.txt` and `.json` artifacts
-
-The CLI also still provides:
-- transcript status messages
-- a routing message before the model call
-- a spinner during active analysis
-
-The non-interactive batch flow is:
-
-1. pass `--urls` and/or `--urls-file`
-2. process each YouTube source in sequence
-3. persist per-source artifacts
-4. render and persist one consolidated session report
-
-The manifest flow is:
-
-1. pass `--session session.json`
-2. load optional session context and source-level provenance
-3. process each source in sequence
-4. persist per-source artifacts into `reports/<session-id>/`
-5. render and persist one consolidated session report in that same directory
-
-## Setup
-
-Create `.env` with one valid API key:
-
-```env
-GEMINI_API_KEY=your_key_here
-```
-
-or:
-
-```env
-GOOGLE_API_KEY=your_key_here
-```
-
-Optional provider selection:
-
-```env
-LLM_PROVIDER=gemini
-GEMINI_MODEL_NAME=gemini-2.5-flash
-```
-
-For an OpenAI-compatible backend:
-
-```env
-LLM_PROVIDER=openai_compatible
-OPENAI_COMPATIBLE_API_KEY=your_key_here
-OPENAI_COMPATIBLE_BASE_URL=https://your-provider.example/v1
-OPENAI_COMPATIBLE_MODEL_NAME=your-model-name
-```
-
-Install dependencies:
-
-```powershell
+```bash
 uv sync
+echo 'GEMINI_API_KEY=...' > .env        # or LLM_PROVIDER=openai_compatible + key + base URL
+uv run python main.py --check           # config OK? (JSON, no network)
+
+uv run python main.py --url "https://youtu.be/VIDEO_ID"           # human report
+uv run python main.py --transcript-file interview.txt --json      # JSON on stdout
+uv run python main.py --session manifest.json --json              # many sources + rollup
+uv run python main.py                                             # interactive (terminal only)
 ```
 
-Run the CLI:
+A manifest is a list of sources (`url` or inline `transcript`) with optional Source Garden
+context. Get a full example with `uv run python main.py --describe | jq .manifest_example`.
 
-```powershell
-uv run python main.py
+## How it works
+
+```mermaid
+flowchart LR
+    A[YouTube URL / file / stdin / manifest] -->|fetch, retried| B[transcript]
+    B --> C[LLM<br/>schema-enforced JSON]
+    C -->|retried on 429/5xx/bad JSON| D[model_output.py<br/>JSON to signals]
+    D --> E[diagnostics.py<br/>normalize + heuristics<br/>field_sources]
+    B --> F[verify.py<br/>quote vs transcript]
+    D --> F
+    E --> G[result JSON + report + transcript]
+    F --> G
+    G -->|many sources| H[aggregate.py<br/>session rollup]
 ```
 
-or:
+1. **Fetch.** YouTube captions via `youtube-transcript-api`, or text you supply.
+2. **Ask.** One call per source. The provider enforces `model_output.MODEL_OUTPUT_SCHEMA` while
+   decoding (Gemini `response_json_schema`, OpenAI strict `json_schema`), so the reply is
+   always parseable JSON with fixed vocabularies.
+3. **Check.** `verify.py` grades every quote; `diagnostics.py` normalizes values, fills gaps with
+   heuristics and records which is which.
+4. **Write.** Per source: `*.json` (the result), `*.txt` (readable report), `*.transcript.txt`.
+   Sessions add a rollup: recurring entities, gatekeeper types, register performance, status counts.
 
-```powershell
-.\.venv\Scripts\python.exe main.py
+### Failure handling
+
+| What failed | Retried? | Result |
+|---|---|---|
+| 429, 5xx, timeout, dropped connection | yes: exponential backoff, `WTP_MAX_ATTEMPTS` (3), `WTP_RETRY_BASE_DELAY` (2 s) | `run.attempts` shows how many |
+| model reply is not valid JSON | yes, once more like a 5xx | `run.attempts.model` |
+| bad key, unknown model (401/403/404) | no | `analysis_failed`, exit 4 |
+| no captions, video unavailable, YouTube IP block | no | `transcript_failed`, exit 3 |
+| one source in a batch | others continue | `status_counts` in the session |
+
+## Trust model: what the evidence grades mean
+
+| Grade | Meaning | Use it as |
+|---|---|---|
+| `verified` | exact span, ignoring case and punctuation | the speaker's words |
+| `approximate` | ≥ 80% of the words, in order, in one stretch | the speaker's words, lightly edited |
+| `stitched` | each sentence is real, but joined from different places or reordered | cite the pieces separately |
+| `not_found` | not in the transcript | unproven; marks the run `degraded` |
+
+**Measured, not assumed** (2026-10-14, three earlier Gemini runs replayed against their
+re-fetched transcripts): 41 quotes → 28 verified, 6 approximate, **7 stitched**, 0 not_found.
+The model joins sentences in about 1 quote in 6, which is why `stitched` exists and why the
+prompt now forbids it. The same replay found that the old text parser had split every
+position-intelligence signal in two; the schema-enforced path can't make that mistake.
+
+## Configuration
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `LLM_PROVIDER` | `gemini` | or `openai_compatible` |
+| `GEMINI_API_KEY` / `GOOGLE_API_KEY` | — | Gemini key |
+| `GEMINI_MODEL_NAME` | `gemini-3.8-flash` | (`gemini-2.5-flash` now returns 404 for new users) |
+| `OPENAI_COMPATIBLE_API_KEY`, `_BASE_URL`, `_MODEL_NAME` | —, —, `gpt-4.1-mini` | any server with the OpenAI Responses API and strict JSON schema |
+| `WTP_MAX_ATTEMPTS`, `WTP_RETRY_BASE_DELAY` | `3`, `2` | retry policy |
+
+`.env` is read from the working directory. `--check` reports whether a key is present, never the key.
+
+## Repository
+
+```
+main.py            CLI: inputs, run modes, exit codes, stdout/stderr discipline
+contract.py        versions, exit codes, statuses, the --describe document, domain glossary
+prompt.py          what the model should look for (not the format)
+model_output.py    JSON Schema the model must follow + adapter to internal signals
+extract.py         parser for pre-0.3 plain-text outputs (kept so old runs can be replayed)
+diagnostics.py     vocabulary normalization, heuristics, field_sources
+verify.py          quote-to-transcript matching
+retry.py           transient vs permanent errors, backoff
+aggregate.py       session rollups
+render.py          human-readable reports
+session_store.py   artifact files
+schemas.py         result skeleton and allowed values
+providers/         Gemini and OpenAI-compatible adapters
+tests/             unit, contract and end-to-end tests (no network)
+AGENTS.md          operating manual for AI agents (CLAUDE.md imports it)
 ```
 
-Run batch mode:
-
-```powershell
-uv run python main.py --urls https://youtu.be/... https://www.youtube.com/watch?v=...
+```bash
+uv run python -m unittest discover -s tests -t .     # 63 tests, ~13 s, no network
 ```
 
-or:
+## Limits
 
-```powershell
-uv run python main.py --urls-file urls.txt
-```
-
-Run manifest mode:
-
-```powershell
-uv run python main.py --session session.json
-```
-
-## Dependencies
-
-Current runtime dependencies from [pyproject.toml](C:/Users/Owl/playbook/wtp-signal-extractor/pyproject.toml:1):
-- `google-genai`
-- `openai`
-- `python-dotenv`
-- `youtube-transcript-api`
-
-Python target:
-- `>=3.14`
-
-## Testing
-
-The current test suite lives in [test_main.py](C:/Users/Owl/playbook/wtp-signal-extractor/test_main.py:1).
-
-It currently covers:
-- structured parsing
-- fallback parsing behavior
-- entity extraction structure
-- gatekeeper classification structure
-- register alignment validity
-- JSON artifact writing
-- session artifact writing
-- mocked single-source CLI flow
-- mocked batch CLI flow
-- mocked manifest CLI flow
-- aggregation behavior
-- provider selection behavior
-- console-output normalization
-- transcript fetch behavior
-
-Run tests with:
-
-```powershell
-.\.venv\Scripts\python.exe -m unittest -v
-```
-
-## Current Limitations
-
-These are real current limitations, not future aspirations:
-
-- pasted transcripts are still single-source only
-- no hard cross-repo integration with Source Garden exists yet
-- batch processing is serial, not concurrent
-- diagnostics are partly heuristic
-- the parser still depends on the model broadly respecting the requested structure
-- manifest validation is intentionally light and permissive
-
-## What The Previous README Claimed That Is Not Yet Implemented
-
-The previous README described several future-state capabilities that do **not** exist in the repo today:
-
-- concurrent transcript fetching across many sources
-- `pipeline/` and `providers/` directory layouts
-
-Those ideas may still be good future direction, but they were not accurate descriptions of the current codebase.
-
-## Repo Hygiene Notes
-
-Ignored local/runtime artifacts include:
-- `.env`
-- `.env.*`
-- `.venv/`
-- `__pycache__/`
-- `outputs/`
-- `reports/`
-- `.uv-cache/`
-- `tmp*/`
-
-## Summary
-
-The repo today is best described as:
-- a working single-source research CLI
-- a working batch research CLI for YouTube sources
-- a working manifest-driven session CLI
-- a Gemini-first structured evaluator
-- a Source Garden-compatible diagnostics producer
-- a JSON-first artifact generator
-
-It is already useful as the evaluator side of a closed-loop system.
-It is not yet the full manifest-driven orchestration layer.
+- Sources run one at a time.
+- Quote matching is lexical. A faithful paraphrase is `not_found`, and a short common phrase can
+  match by chance (only quotes of three or more words count as stitched fragments).
+- Heuristic diagnostics are keyword rules: useful as a fallback, labelled as such, not as good
+  as the model's direct answer.
+- Source Garden integration exists only as JSON fields; nothing calls across repos yet.
+- Live model behavior is only as reliable as the provider: during testing on 2026-10-14, Gemini's
+  flash models returned 503 "high demand" for several minutes at a time.

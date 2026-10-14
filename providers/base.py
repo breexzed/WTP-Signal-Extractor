@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 
 @dataclass(frozen=True)
@@ -13,5 +13,7 @@ class ProviderConfig:
 
 
 class LLMProvider(Protocol):
-    def generate(self, prompt: str, system_instruction: str) -> str:
+    def generate(self, prompt: str, system_instruction: str, schema: dict[str, Any]) -> str:
+        """Return the model's reply as JSON text that conforms to `schema`.
+        The provider enforces the schema while decoding, not after."""
         ...
