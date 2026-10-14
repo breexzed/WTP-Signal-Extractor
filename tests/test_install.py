@@ -104,5 +104,34 @@ class Updates(unittest.TestCase):
         self.assertEqual((code, out.strip()), (EXIT_OK, cli.contract.TOOL_VERSION))
 
 
+
+class FileNames(unittest.TestCase):
+    def test_named_after_the_source_and_never_overwritten(self):
+        from wtp.session_store import write_artifacts
+        tmp = Path(tempfile.mkdtemp(prefix="wtp-names-"))
+        try:
+            source_id = "youtube_url-939LlYN1aK8-20261014-165413"
+            first = write_artifacts({"artifacts": {}}, "r", output_dir=tmp, session_id=source_id,
+                                    transcript="t")
+            second = write_artifacts({"artifacts": {}}, "r", output_dir=tmp, session_id=source_id)
+            self.assertEqual(Path(first["json_path"]).name, f"{source_id}.json")
+            self.assertEqual(Path(first["transcript_path"]).name, f"{source_id}.transcript.txt")
+            self.assertEqual(Path(second["json_path"]).name, f"{source_id}-2.json")
+            self.assertEqual(len(list(tmp.iterdir())), 5)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+
+class PluginManifest(unittest.TestCase):
+    def test_plugin_and_marketplace_agree_with_the_package(self):
+        repo = Path(__file__).resolve().parent.parent
+        plugin = json.loads((repo / "plugin/.claude-plugin/plugin.json").read_text())
+        market = json.loads((repo / ".claude-plugin/marketplace.json").read_text())
+        self.assertEqual(plugin["version"], cli.contract.TOOL_VERSION)
+        entry = next(p for p in market["plugins"] if p["name"] == plugin["name"])
+        self.assertTrue((repo / entry["source"] / "skills/wtp/SKILL.md").is_file())
+
+
 if __name__ == "__main__":
     unittest.main()

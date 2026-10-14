@@ -29,6 +29,7 @@ from wtp.model_output import MODEL_OUTPUT_SCHEMA, parse_any
 from wtp.prompt import SYSTEM_PROMPT
 from wtp.providers.base import ProviderConfig
 from wtp.providers.gemini import GeminiProvider
+from wtp.providers.claude import DEFAULT_MODEL as DEFAULT_CLAUDE_MODEL, ClaudeProvider
 from wtp.providers.openai_compatible import OpenAICompatibleProvider
 from wtp.render import render_result, render_session_report, safe_console_text
 from wtp.schemas import merge_result
@@ -89,6 +90,9 @@ PROVIDERS: dict[str, dict[str, object]] = {
     "gemini": {"kind": "gemini", "key_env": ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GEMINI_API_KEYS"),
                "model_env": ("GEMINI_MODEL_NAME",), "default_model": DEFAULT_GEMINI_MODEL,
                "free": "Google AI Studio free tier (rate limited)"},
+    "anthropic": {"kind": "claude", "key_env": ("ANTHROPIC_API_KEY",), "key_optional": True,
+                  "model_env": ("ANTHROPIC_MODEL",), "default_model": DEFAULT_CLAUDE_MODEL,
+                  "free": "paid; key optional if `ant auth login` was run"},
     "ollama": {"kind": "openai", "base_url": "http://localhost:11434/v1", "key_env": (),
                "model_env": ("OLLAMA_MODEL",), "free": "local, no key; `ollama list` shows models"},
     "llamacpp": {"kind": "openai", "base_url": "http://localhost:8080/v1", "key_env": (),
@@ -140,7 +144,7 @@ def get_provider_config() -> ProviderConfig:
 
     key_env = preset["key_env"]
     api_key = first_env(key_env) or os.getenv("LLM_API_KEY") or ""
-    if key_env and not api_key:
+    if key_env and not api_key and not preset.get("key_optional"):
         user_env = install.config_dir() / ".env"
         raise UsageError(f"Missing API key for '{provider_name}'. Add `{key_env[0]}=...` to {user_env} "
                          f"(or export {' / '.join(key_env)} or LLM_API_KEY). "
@@ -148,6 +152,9 @@ def get_provider_config() -> ProviderConfig:
 
     if preset["kind"] == "gemini":
         return ProviderConfig(provider_name=provider_name, model_name=model, api_key=api_key)
+    if preset["kind"] == "claude":
+        return ProviderConfig(provider_name=provider_name, model_name=model, api_key=api_key,
+                              base_url=os.getenv("LLM_BASE_URL"))
     base_url = (os.getenv("LLM_BASE_URL") or os.getenv("OPENAI_COMPATIBLE_BASE_URL")
                 or preset.get("base_url"))
     if not base_url:
@@ -158,8 +165,11 @@ def get_provider_config() -> ProviderConfig:
 
 def get_llm_provider():
     config = get_provider_config()
-    if PROVIDERS[config.provider_name]["kind"] == "gemini":
+    kind = PROVIDERS[config.provider_name]["kind"]
+    if kind == "gemini":
         return GeminiProvider(config)
+    if kind == "claude":
+        return ClaudeProvider(config)
     return OpenAICompatibleProvider(config)
 
 
@@ -288,7 +298,7 @@ def load_session_manifest(path: str) -> dict[str, object]:
 # ---------------------------------------------------------------- records
 
 def build_source_id(input_type: str, video_id: str | None = None) -> str:
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")  # file names add -2.. on collision
     if video_id:
         return f"{input_type}-{video_id}-{timestamp}"
     return f"{input_type}-{timestamp}"

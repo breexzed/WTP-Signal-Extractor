@@ -1,0 +1,16 @@
+{
+  "name": "wtp",
+  "owner": {
+    "name": "Breexzed",
+    "email": "breexzed@outlook.com"
+  },
+  "plugins": [
+    {
+      "name": "wtp",
+      "description": "Lets Claude Code run the wtp CLI: extract willingness-to-pay and go-to-market signals from interview or YouTube transcripts, with every quote checked against the transcript.",
+      "source": "./plugin",
+      "category": "productivity",
+      "homepage": "https://github.com/breexzed/WTP-Signal-Extractor"
+    }
+  ]
+}

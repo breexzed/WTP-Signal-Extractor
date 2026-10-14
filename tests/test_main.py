@@ -11,7 +11,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from wtp import cli as main
-from wtp.contract import EXIT_DEGRADED, EXIT_OK, EXIT_USAGE
+from wtp.contract import EXIT_USAGE
 from wtp.aggregate import aggregate_source_results, build_session_result
 from wtp.diagnostics import build_diagnostics
 from wtp.extract import parse_model_output
@@ -598,7 +598,7 @@ class MainTests(unittest.TestCase):
             output = stdout.getvalue()
             self.assertIn("=== SESSION RESULTS ===", output)
             self.assertIn("Session artifacts saved:", output)
-            self.assertTrue(any(file.name.startswith("wtp-session-report-") for file in files))
+            self.assertTrue(any(file.name.startswith("session-") for file in files))
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
@@ -657,10 +657,10 @@ class MainTests(unittest.TestCase):
             self.assertEqual(len(list(report_dir.glob("*.transcript.txt"))), 2)
 
             session_payload = json.loads(
-                next(report_dir.glob("wtp-session-report-*.json")).read_text(encoding="utf-8")
+                next(report_dir.glob("research-session-1.json")).read_text(encoding="utf-8")
             )
             source_payload = json.loads(
-                next(report_dir.glob("wtp-analysis-source-url-1-*.json")).read_text(encoding="utf-8")
+                next(report_dir.glob("source-url-1.json")).read_text(encoding="utf-8")
             )
 
             self.assertEqual(session_payload["session_context"]["vertical"], "dental")

@@ -36,7 +36,7 @@ Rules the CLI keeps (tests enforce them, `test_agent_contract.py`):
 - With `--json`, **stdout is exactly one JSON document**. Progress and errors are on stderr.
 - It **never waits for input** unless stdin is a terminal and no input flag was given.
 - Artifacts are always written. Their paths are in `artifacts` (`json_path`, `text_path`,
-  `transcript_path`). Default dir `~/.local/share/wtp/runs/`; `--session` defaults to `.../sessions/<session_id>/`;
+  `transcript_path`). Files are named `<source_id>.json|.txt|.transcript.txt` (a rerun adds `-2`). Default dir `~/.local/share/wtp/runs/`; `--session` defaults to `.../sessions/<session_id>/`;
   `--out-dir` overrides.
 
 ## Read the result in this order
@@ -60,8 +60,10 @@ Rules the CLI keeps (tests enforce them, `test_agent_contract.py`):
    model's UPPERCASE labels (`QUOTE`, `CATEGORY`, ...).
 
 ## Models
-Any OpenAI-Chat-Completions server or Gemini: `LLM_PROVIDER` = gemini | ollama | llamacpp | groq |
-openrouter | openai | openai_compatible, plus `LLM_MODEL_NAME` (see `--describe` → environment).
+Gemini, Claude (`anthropic`, default `claude-opus-5-5`, structured outputs + refusal fallback;
+key optional after `ant auth login`; not yet run live), or any OpenAI-Chat-Completions server:
+`LLM_PROVIDER` = gemini | anthropic | ollama | llamacpp | groq | openrouter | openai |
+openai_compatible, plus `LLM_MODEL_NAME` (see `--describe` → environment).
 For free, unlimited local runs: `LLM_PROVIDER=ollama LLM_MODEL_NAME=<from ollama list>`.
 Check `run.structured_mode`: `json_object` means the server did not enforce the schema, so look
 at `parse_warnings` for violations. Small local models produce valid JSON but invent quotes;
@@ -78,8 +80,8 @@ trust `evidence`, not the model.
 - To test a parser or diagnostics change, **replay** a saved run instead of calling the model:
   `raw_output` is inside every result JSON, the transcript is beside it.
   ```bash
-  jq -r .raw_output ~/.local/share/wtp/runs/wtp-analysis-X.json > /tmp/raw.txt
-  wtp --replay /tmp/raw.txt --transcript-file ~/.local/share/wtp/runs/wtp-analysis-X.transcript.txt --json
+  jq -r .raw_output ~/.local/share/wtp/runs/<source_id>.json > /tmp/raw.txt
+  wtp --replay /tmp/raw.txt --transcript-file ~/.local/share/wtp/runs/<source_id>.transcript.txt --json
   ```
 - Never print or log the contents of `.env`. `--check` reports `api_key_present`, never the key.
 
@@ -92,7 +94,7 @@ Replay of one source: ~1.4 s wall. Quote check worst case: ~0.4 s for 35 fuzzy q
 
 ## Change the code
 ```bash
-uv run python -m unittest discover -s tests -t .    # 79 tests, ~13 s, no network
+uv run python -m unittest discover -s tests -t .    # 86 tests, ~15 s, no network
 ```
 | file | role |
 |---|---|
@@ -107,7 +109,8 @@ uv run python -m unittest discover -s tests -t .    # 79 tests, ~13 s, no networ
 | `verify.py` | quote ↔ transcript matching (`evidence`) |
 | `aggregate.py` | session rollups across sources |
 | `render.py`, `session_store.py` | human report; artifact writing |
-| `providers/` | Gemini (`response_json_schema`) and OpenAI Chat Completions (strict `json_schema`, falls back to `json_object`) adapters: `generate(prompt, system, schema) -> str`; presets in `main.PROVIDERS` |
+| `plugin/`, `.claude-plugin/` | Claude Code plugin + marketplace: the `wtp` skill (keep its version = package version; tested) |
+| `providers/` | Gemini (`response_json_schema`), Claude (`claude.py`, `output_config.format`) and OpenAI Chat Completions (strict `json_schema`, falls back to `json_object`) adapters: `generate(prompt, system, schema) -> str`; presets in `main.PROVIDERS` |
 | `tests/` | `test_main` (units), `test_agent_contract` (CLI contract, subprocess), `test_structured` (schema, retries) |
 
 Invariants: keep stdout clean under `--json`; every failure becomes a result with a

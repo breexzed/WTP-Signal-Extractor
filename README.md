@@ -1,187 +1,129 @@
-# WTP Signal Extractor
+# wtp
 
-**Turns an interview or video transcript into checked evidence of willingness to pay.**
+wtp is an open-source, agent-first CLI that reads an interview, podcast or YouTube transcript and
+tells you whether people would actually **pay**: the money they already spend, the tools they
+dropped, the workarounds they live with, and who controls their market. An LLM finds the signals;
+wtp then checks every quote against the transcript, so you know which evidence is real. Built for
+AI agents to run unattended, which is why it's pleasant for people too.
 
-It asks an LLM where people show they would pay to fix a problem (and who stands in their way),
-then **checks the answer itself**: every quote is matched against the transcript, and every
-judgment is labelled with where it came from. It's built for an AI agent to run unattended, which
-is also why it's pleasant for a person to run.
+## Current release
+
+- **[v0.6.0 Alpha →](https://github.com/breexzed/WTP-Signal-Extractor/releases/latest)**: Linux (tested in CI on every release); macOS should work but is untested. Python 3.14, which uv installs for you.
+  ```bash
+  uv tool install git+https://github.com/breexzed/WTP-Signal-Extractor@v0.6.0
+  ```
+- **Claude Code plugin**: lets Claude Code run wtp and read its evidence correctly.
+  ```
+  /plugin install wtp --marketplace breexzed/WTP-Signal-Extractor
+  ```
+
+This is pre-release software. Expect fast releases and changing output fields: check
+`schema_version` before you depend on one. GitHub Releases only for now; PyPI comes later.
+
+## Why wtp
+
+Customers say they want many things and pay for few. The tell is behavior, not opinion, and it
+sits buried in hours of interviews. Reading them by hand doesn't scale, and an LLM summary can't
+be trusted: models paraphrase, stitch sentences together, and occasionally invent quotes. wtp
+aims for the third option: let the model read everything, then **check its work** before you
+believe it.
+
+- **Behavior over opinion.** Money spent, tools abandoned, active workarounds and "it cost us a
+  client" are strong evidence; wishes and hypotheticals are kept separate as weak evidence.
+- **Every quote is checked.** Each quote is graded against the transcript: `verified` (exact),
+  `approximate` (small edits), `stitched` (real sentences joined from different places) or
+  `not_found` (unproven). Any `not_found` marks the run `degraded`.
+- **Go-to-market map, not just a summary.** Cascades that hurt the operator's own customers,
+  gatekeepers they can't bypass (platforms, distributors, certifiers), what those gatekeepers
+  protect, and how the niche describes itself.
+- **Any model, including free local ones.** Gemini, Claude, OpenAI, Groq, OpenRouter, or local
+  Ollama and llama.cpp. The model must return JSON that matches wtp's schema, enforced by the
+  provider where it can be and checked locally always.
+- **No context left behind.** One JSON document on stdout, logs on stderr, exit codes that mean
+  something, `wtp --describe` for the whole contract, and labels saying which judgments came from
+  the model and which from a heuristic. An agent never has to read the source to use it.
+- **Fails loudly, retries sensibly.** Rate limits, 5xx errors, timeouts and malformed replies are
+  retried with backoff; bad keys, missing captions and refusals fail at once with the next step
+  in the error.
+- **Updates itself.** `wtp --check-update` compares with the latest release; `wtp --self-update`
+  installs it.
 
 ```console
 $ wtp --replay raw.txt --transcript-file transcript.txt --json \
     | jq -c '{status, evidence: .evidence | {total, verified, approximate, stitched, not_found}}'
 {"status":"ok","evidence":{"total":13,"verified":10,"approximate":1,"stitched":2,"not_found":0}}
 ```
-<sub>Real output: a saved Gemini answer about wedding-industry lead platforms (video `939LlYN1aK8`),
-re-checked offline against its transcript.</sub>
+<sub>Real output: a saved Gemini analysis of a wedding-industry video, re-checked offline against its transcript.</sub>
 
----
+## How it works
 
-## Why it exists
+- **One model call per source.** YouTube captions (or your text) go to the model with
+  `prompt.py` (what to look for) and `model_output.py` (the JSON Schema it must follow).
+- **Local checks, no model.** `verify.py` grades quotes, `diagnostics.py` normalizes values and
+  fills gaps with labelled heuristics, `aggregate.py` rolls many sources into one session report.
+- **Plain files.** Each source saves `<source_id>.json`, a readable `.txt` report and the
+  `.transcript.txt` under `~/.local/share/wtp/`, so any run can be re-checked offline with
+  `--replay`.
+- **Python, standard library plus provider SDKs.** No database, no server.
 
-Customers say they want many things. They **pay** for few. The tell is behavior, not opinion:
-money already spent, tools bought and dropped, workarounds kept alive, "it cost us a client".
-This tool pulls those moments out of long transcripts, separates them from wishful talk, and
-maps them onto a go-to-market pipeline (FGP):
+Measured on 2026-10-14: three Gemini analyses replayed against their transcripts gave 41 quotes:
+28 verified, 6 approximate, 7 stitched, 0 invented. A tiny local model (`qwen2.5:0.5b`) returned
+schema-valid JSON on the first try but invented most of its quotes, and wtp flagged the run.
 
-| Phase | Question it answers | Where it lands in the result |
-|---|---|---|
-| 0 | Who exactly is this niche, and how do they see themselves? | `pass2.subniche_culture_signals` |
-| 1 | Is the pain real enough that they already pay? | `pass1.behavior_signals` vs `opinion_signals` |
-| 2 | Does the pain break things for *their* customers too? | `pass2.cascade_indicators` |
-| 3 | Who controls access (platforms, distributors, certifiers)? | `pass2.gatekeeper_mentions` |
-| 3.5 | What does that gatekeeper protect? | `pass2.position_intelligence` |
+## Open source & cost
 
-It is the judging half of a planned loop with **Source Garden** (which decides *where* to look);
-the `provenance` and `diagnostics.search_language_feedback` fields are that feedback path.
-
-## Built for agents: no context left behind
-
-An agent knows only what a tool tells it: the help text, stdout, stderr, the exit code, the
-files it writes and the docs. Each of those is designed so an agent never has to guess.
-
-| Non-negotiable | What it means here |
-|---|---|
-| **Control surface** | Every input is a flag (`--url`, `--transcript-file PATH\|-`, `--urls`, `--session`). It never waits for typing unless a person is at a terminal. `--check` tests config with no network; `--replay` re-parses a saved answer with no API call. |
-| **Output contract** | `--json` puts exactly one JSON document on stdout; logs go to stderr. Exit codes: `0` ok, `1` degraded, `2` usage, `3` transcript failed, `4` model failed (a batch exits with the worst). Every result carries `status`, `schema_version` and the paths of every file written. |
-| **Trust signals** | Quotes are graded against the transcript (`verified` / `approximate` / `stitched` / `not_found`). Each diagnostic says whether the `llm` or a `heuristic` produced it. `run` records model, prompt+schema hash, attempts and mode. Failures are results with an `error`, never tracebacks. |
-| **Domain knowledge** | `--describe` prints the whole contract as JSON: flags, exit codes, every allowed value, every field, the FGP phases, gatekeeper types and registers. [AGENTS.md](AGENTS.md) is the operating manual. |
-
-## Install
-
-Needs [uv](https://docs.astral.sh/uv/) (it fetches Python 3.14 if you don't have it).
+wtp is free software under the [MIT license](LICENSE). It never ships or holds a key of its own:
+you bring your model. Local models (Ollama, llama.cpp) cost nothing and keep transcripts on your
+machine; hosted ones bill you per call. Set the provider in `~/.config/wtp/.env`:
 
 ```bash
-uv tool install git+https://github.com/breexzed/WTP-Signal-Extractor@v0.5.1
-mkdir -p ~/.config/wtp && echo 'GEMINI_API_KEY=...' >> ~/.config/wtp/.env   # or any provider below
-wtp --check              # config OK? (JSON, no network)
-wtp --check-update       # newer release on GitHub? (exit 1 = yes)
-wtp --self-update        # install it
+LLM_PROVIDER=ollama          LLM_MODEL_NAME=qwen2.5:7b        # free, local
+LLM_PROVIDER=gemini          GEMINI_API_KEY=...               # free tier, rate limited
+LLM_PROVIDER=anthropic       ANTHROPIC_API_KEY=...            # Claude (default claude-opus-5-5)
+LLM_PROVIDER=openai_compatible  LLM_BASE_URL=...  LLM_MODEL_NAME=...   # any Chat Completions server
 ```
-
-Runs are saved under `~/.local/share/wtp/` (`WTP_DATA_DIR` to change, `--out-dir` per run).
+`wtp --check` shows what is configured (never the key), and `wtp --describe` lists every option.
+The Claude adapter is covered by tests but has not yet been run against the live API.
 
 ## Use
 
 ```bash
-wtp --url "https://youtu.be/VIDEO_ID"             # human report
-wtp --transcript-file interview.txt --json        # JSON on stdout
-wtp --session manifest.json --json                # many sources + rollup
-wtp                                               # interactive (terminal only)
+wtp --check                                     # config and paths, no network
+wtp --url "https://youtu.be/VIDEO_ID"           # readable report
+wtp --transcript-file interview.txt --json      # JSON on stdout ('-' reads stdin)
+wtp --session manifest.json --json              # many sources + a session rollup
 ```
+Exit codes: `0` ok, `1` degraded, `2` usage or config, `3` transcript failed, `4` model failed.
+[AGENTS.md](AGENTS.md) explains how to read a result field by field.
 
-A manifest is a list of sources (`url` or inline `transcript`) with optional Source Garden
-context. Get a full example with `wtp --describe | jq .manifest_example`.
+## Build from source
 
-## How it works
-
-```mermaid
-flowchart LR
-    A[YouTube URL / file / stdin / manifest] -->|fetch, retried| B[transcript]
-    B --> C[LLM<br/>schema-enforced JSON]
-    C -->|retried on 429/5xx/bad JSON| D[model_output.py<br/>JSON to signals]
-    D --> E[diagnostics.py<br/>normalize + heuristics<br/>field_sources]
-    B --> F[verify.py<br/>quote vs transcript]
-    D --> F
-    E --> G[result JSON + report + transcript]
-    F --> G
-    G -->|many sources| H[aggregate.py<br/>session rollup]
-```
-
-1. **Fetch.** YouTube captions via `youtube-transcript-api`, or text you supply.
-2. **Ask.** One call per source. The provider enforces `model_output.MODEL_OUTPUT_SCHEMA` while
-   decoding (Gemini `response_json_schema`, OpenAI strict `json_schema`), so the reply is
-   always parseable JSON with fixed vocabularies.
-3. **Check.** `verify.py` grades every quote; `diagnostics.py` normalizes values, fills gaps with
-   heuristics and records which is which.
-4. **Write.** Per source: `*.json` (the result), `*.txt` (readable report), `*.transcript.txt`.
-   Sessions add a rollup: recurring entities, gatekeeper types, register performance, status counts.
-
-### Failure handling
-
-| What failed | Retried? | Result |
-|---|---|---|
-| 429, 5xx, timeout, dropped connection | yes: exponential backoff, `WTP_MAX_ATTEMPTS` (3), `WTP_RETRY_BASE_DELAY` (2 s) | `run.attempts` shows how many |
-| model reply is not valid JSON | yes, once more like a 5xx | `run.attempts.model` |
-| bad key, unknown model (401/403/404) | no | `analysis_failed`, exit 4 |
-| no captions, video unavailable, YouTube IP block | no | `transcript_failed`, exit 3 |
-| one source in a batch | others continue | `status_counts` in the session |
-
-## Trust model: what the evidence grades mean
-
-| Grade | Meaning | Use it as |
-|---|---|---|
-| `verified` | exact span, ignoring case and punctuation | the speaker's words |
-| `approximate` | ≥ 80% of the words, in order, in one stretch | the speaker's words, lightly edited |
-| `stitched` | each sentence is real, but joined from different places or reordered | cite the pieces separately |
-| `not_found` | not in the transcript | unproven; marks the run `degraded` |
-
-**Measured, not assumed** (2026-10-14, three earlier Gemini runs replayed against their
-re-fetched transcripts): 41 quotes → 28 verified, 6 approximate, **7 stitched**, 0 not_found.
-The model joins sentences in about 1 quote in 6, which is why `stitched` exists and why the
-prompt now forbids it. The same replay found that the old text parser had split every
-position-intelligence signal in two; the schema-enforced path can't make that mistake.
-
-## Configuration
-
-Works with any model that speaks the OpenAI Chat Completions API, plus Gemini natively.
-
-| `LLM_PROVIDER` | Needs | Free? |
-|---|---|---|
-| `gemini` (default) | `GEMINI_API_KEY` | free tier, rate limited |
-| `ollama` | `LLM_MODEL_NAME` (see `ollama list`) | local, no key, no quota |
-| `llamacpp` | `LLM_MODEL_NAME`, `llama-server` on :8080 | local |
-| `groq` | `GROQ_API_KEY`, `LLM_MODEL_NAME` | free tier |
-| `openrouter` | `OPENROUTER_API_KEY`, `LLM_MODEL_NAME` (`…:free` models) | free models |
-| `openai` | `OPENAI_API_KEY`, `LLM_MODEL_NAME` | paid |
-| `openai_compatible` | `LLM_BASE_URL`, `LLM_MODEL_NAME`, `LLM_API_KEY` if needed | any server |
-
-The tool asks the server to enforce the schema (`json_schema`). If the server refuses, it asks for
-plain JSON with the schema in the prompt (`json_object`). Either way the reply is checked against
-the schema locally, and `run.structured_mode` says which happened.
-
-Retries: `WTP_MAX_ATTEMPTS` (3) and `WTP_RETRY_BASE_DELAY` (2 s). `.env` is read from the working
-directory. `--check` reports whether a key is present, never the key.
-
-**Local run, 2026-10-14** (`qwen2.5:0.5b` on CPU, 3.7k-char transcript): valid schema-enforced JSON
-on the first attempt in 89 s, but 7 of 18 quotes were not in the transcript (one was the prompt's
-own definition of a gatekeeper). The run came back `degraded`. A model that small works for
-plumbing, not analysis; the quote check is what tells you.
-
-## Repository
-
-```
-src/wtp/cli.py           CLI: inputs, run modes, exit codes, stdout/stderr discipline
-src/wtp/contract.py      versions, exit codes, statuses, the --describe document, domain glossary
-src/wtp/install.py       config/data locations, version, --check-update / --self-update
-src/wtp/prompt.py        what the model should look for (not the format)
-src/wtp/model_output.py  JSON Schema the model must follow, local validation, adapter
-src/wtp/extract.py       parser for pre-0.3 plain-text outputs (kept so old runs replay)
-src/wtp/diagnostics.py   vocabulary normalization, heuristics, field_sources
-src/wtp/verify.py        quote-to-transcript matching
-src/wtp/retry.py         transient vs permanent errors, backoff
-src/wtp/aggregate.py     session rollups
-src/wtp/render.py, session_store.py, schemas.py   reports, artifact files, result skeleton
-src/wtp/providers/       Gemini and OpenAI Chat Completions adapters
-tests/                   unit, contract, install and end-to-end tests (no network)
-.github/workflows/       ci (every push) and release (on a v* tag: test, build, install, publish)
-AGENTS.md                operating manual for AI agents (CLAUDE.md imports it)
-```
+Prerequisite: [uv](https://docs.astral.sh/uv/). It installs the pinned Python and locked dependencies.
 
 ```bash
-uv sync && uv run python -m unittest discover -s tests -t .     # 79 tests, ~13 s, no network
+git clone https://github.com/breexzed/WTP-Signal-Extractor && cd WTP-Signal-Extractor
+uv sync
+uv run wtp --describe | head
 ```
 
-Release: bump `version` in `pyproject.toml`, commit, `git tag vX.Y.Z && git push --tags`. CI refuses a
-tag that doesn't match the version.
+## Development & verification
 
-## Limits
+[AGENTS.md](AGENTS.md) is the contributor guide for people and AI agents: the CLI contract, the
+invariants, and where each piece lives. The short loop:
 
-- Sources run one at a time.
-- Quote matching is lexical. A faithful paraphrase is `not_found`, and a short common phrase can
-  match by chance (only quotes of three or more words count as stitched fragments).
-- Heuristic diagnostics are keyword rules: useful as a fallback, labelled as such, not as good
-  as the model's direct answer.
-- Source Garden integration exists only as JSON fields; nothing calls across repos yet.
-- Live model behavior is only as reliable as the provider: during testing on 2026-10-14, Gemini's
-  flash models returned 503 "high demand" for several minutes at a time.
+```bash
+uv run python -m unittest discover -s tests -t .   # 86 tests, no network, no API key
+uvx ruff@0.12.0 check src tests
+```
+
+CI runs both on every push. A `v*` tag runs them again, builds the wheel, installs it the way a
+user would, and publishes the GitHub Release; it refuses a tag that doesn't match the package
+version.
+
+## Contributing
+
+wtp is in Alpha. Bug reports with the command, its exit code and `wtp --check` output are very
+welcome: use the issue forms, and never attach API keys, `.env` files or transcripts you can't
+share. For larger changes (a new provider, a new output field, prompt or schema changes), open an
+issue first so we agree on the shape before you invest in a pull request. See
+[CONTRIBUTING.md](CONTRIBUTING.md) and, for vulnerabilities, [SECURITY.md](SECURITY.md).

@@ -1,0 +1,11 @@
+{
+  "name": "wtp",
+  "version": "0.6.0",
+  "description": "Teaches Claude Code to run the wtp CLI and read its checked evidence: willingness-to-pay and go-to-market signals from transcripts.",
+  "author": {
+    "name": "Breexzed",
+    "email": "breexzed@outlook.com"
+  },
+  "homepage": "https://github.com/breexzed/WTP-Signal-Extractor",
+  "license": "MIT"
+}

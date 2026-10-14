@@ -1,0 +1,33 @@
+name: Bug report
+description: Something wtp did wrong
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: "Never paste API keys, `.env` contents, or transcripts you can't share publicly."
+  - type: input
+    id: version
+    attributes:
+      label: wtp --version
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command and exit code
+      description: The exact command you ran and what `echo $?` printed.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected
+    validations:
+      required: true
+  - type: textarea
+    id: check
+    attributes:
+      label: wtp --check output
+      description: Safe to share; it never contains keys.
+      render: json

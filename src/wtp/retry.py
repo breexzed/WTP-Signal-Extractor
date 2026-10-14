@@ -26,7 +26,7 @@ TRANSIENT_TYPES = {
     "MalformedModelOutput",                                                           # ours: bad JSON once
 }
 # IpBlocked/RequestBlocked: YouTube blocks for hours, not seconds. Fail fast.
-PERMANENT_TYPES = {"IpBlocked", "RequestBlocked", "TranscriptsDisabled", "NoTranscriptFound",
+PERMANENT_TYPES = {"ClaudeRefusal", "ClaudeTruncated", "IpBlocked", "RequestBlocked", "TranscriptsDisabled", "NoTranscriptFound",
                    "VideoUnavailable", "VideoUnplayable", "InvalidVideoId", "AgeRestricted",
                    "PoTokenRequired"}
 

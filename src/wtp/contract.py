@@ -162,10 +162,11 @@ def describe(cli_flags: list[dict[str, Any]]) -> dict[str, Any]:
         "flags": cli_flags,
         "exit_codes": {str(k): v for k, v in EXIT_CODES.items()},
         "environment": {
-            "LLM_PROVIDER": "gemini (default) | ollama | llamacpp | groq | openrouter | openai | "
+            "LLM_PROVIDER": "gemini (default) | anthropic (Claude; default claude-opus-5-5) | ollama | "
+                            "llamacpp | groq | openrouter | openai | "
                             "openai_compatible (any Chat Completions server; set LLM_BASE_URL)",
             "LLM_MODEL_NAME": "model for any provider (required except gemini: default gemini-3.8-flash)",
-            "keys": "GEMINI_API_KEY | GROQ_API_KEY | OPENROUTER_API_KEY | OPENAI_API_KEY | "
+            "keys": "GEMINI_API_KEY | ANTHROPIC_API_KEY (or an `ant auth login` profile) | GROQ_API_KEY | OPENROUTER_API_KEY | OPENAI_API_KEY | "
                     "OPENAI_COMPATIBLE_API_KEY, or LLM_API_KEY for any; ollama/llamacpp need none",
             "LLM_BASE_URL": "override the provider's base URL (required for openai_compatible)",
             "WTP_MAX_ATTEMPTS": "tries per model call / transcript fetch, default 3",
