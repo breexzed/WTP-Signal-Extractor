@@ -214,6 +214,7 @@ class MainTests(unittest.TestCase):
             "LLM_PROVIDER": "openai_compatible",
             "OPENAI_COMPATIBLE_API_KEY": "oa-key",
             "OPENAI_COMPATIBLE_BASE_URL": "https://example.com/v1",
+            "LLM_MODEL_NAME": "some-model",
         },
         clear=True,
     )

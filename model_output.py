@@ -104,6 +104,13 @@ LABELS = {
 }
 
 
+def safe_int(value: Any, fallback: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
 def labelled(items: Any) -> list[dict[str, str]]:
     return [{LABELS.get(k, k.upper()): str(v) for k, v in item.items()}
             for item in (items or []) if isinstance(item, dict)]
@@ -122,10 +129,50 @@ def load_json(raw: str) -> dict[str, Any]:
     return data
 
 
+def schema_errors(schema: dict[str, Any], value: Any, path: str = "$", limit: int = 20) -> list[str]:
+    """Check value against the subset of JSON Schema used above. Servers that only
+    promise "some JSON" (json_object mode) are held to the schema here."""
+    errors: list[str] = []
+
+    def walk(node: dict[str, Any], v: Any, p: str) -> None:
+        if len(errors) >= limit:
+            return
+        kind = node.get("type")
+        if kind == "object":
+            if not isinstance(v, dict):
+                errors.append(f"{p}: expected object")
+                return
+            for key in node.get("required", []):
+                if key not in v:
+                    errors.append(f"{p}.{key}: missing")
+            for key, item in v.items():
+                if key in node["properties"]:
+                    walk(node["properties"][key], item, f"{p}.{key}")
+                elif node.get("additionalProperties") is False:
+                    errors.append(f"{p}.{key}: unexpected field")
+        elif kind == "array":
+            if not isinstance(v, list):
+                errors.append(f"{p}: expected array")
+                return
+            for i, item in enumerate(v):
+                walk(node["items"], item, f"{p}[{i}]")
+        elif kind == "string":
+            if not isinstance(v, str):
+                errors.append(f"{p}: expected string")
+            elif "enum" in node and v not in node["enum"]:
+                errors.append(f"{p}: {v!r} not one of {node['enum']}")
+        elif kind == "integer" and (not isinstance(v, int) or isinstance(v, bool)):
+            errors.append(f"{p}: expected integer")
+        elif kind == "boolean" and not isinstance(v, bool):
+            errors.append(f"{p}: expected boolean")
+
+    walk(schema, value, path)
+    return errors
+
+
 def parse_structured_output(raw: str) -> dict[str, Any]:
     data = load_json(raw)
-    missing = [key for key in MODEL_OUTPUT_SCHEMA["required"] if key not in data]
-    warnings = [f"Model JSON is missing '{key}'." for key in missing]
+    warnings = [f"Model JSON violates schema at {e}" for e in schema_errors(MODEL_OUTPUT_SCHEMA, data)]
 
     behavior = labelled(data.get("behavior_signals"))
     p1 = data.get("pass1_summary") or {}
@@ -138,7 +185,7 @@ def parse_structured_output(raw: str) -> dict[str, Any]:
             "behavior_signals": behavior,
             "opinion_signals": labelled(data.get("opinion_signals")),
             "summary": {
-                "total_high_signal_moments": int(p1.get("total_high_signal_moments", len(behavior))),
+                "total_high_signal_moments": safe_int(p1.get("total_high_signal_moments"), len(behavior)),
                 "dominant_pain_category": p1.get("dominant_pain_category") or "None found.",
                 "confidence_level": p1.get("confidence_level") or "Not provided.",
             },

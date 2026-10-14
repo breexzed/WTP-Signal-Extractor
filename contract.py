@@ -23,7 +23,7 @@ from schemas import (
     empty_result,
 )
 
-TOOL_VERSION = "0.3.0"
+TOOL_VERSION = "0.4.0"
 # Bump on any breaking change to the result or session JSON shape.
 SCHEMA_VERSION = "2"
 
@@ -106,7 +106,8 @@ FIELD_GUIDE = {
     "parse_warnings": "Sections the parser expected but did not find. Non-empty means status=degraded.",
     "raw_output": "The model's full text answer. Re-parse it offline with --replay.",
     "run": "Provenance of this run: tool/schema version, mode (live|replay), output_format "
-           "(json = schema-enforced | legacy_text = pre-0.3 runs), attempts per step "
+           "(json | legacy_text = pre-0.3 runs), structured_mode (json_schema = server enforced "
+           "the schema | json_object = only JSON enforced, schema checked locally), attempts per step "
            "({transcript, model}), provider, model, prompt hash (prompt + schema), timing.",
     "error": "Present only when status is *_failed: the exception, with the attempt count.",
     "artifacts": "Paths of every file this run wrote.",
@@ -158,15 +159,17 @@ def describe(cli_flags: list[dict[str, Any]]) -> dict[str, Any]:
         "flags": cli_flags,
         "exit_codes": {str(k): v for k, v in EXIT_CODES.items()},
         "environment": {
-            "LLM_PROVIDER": "gemini (default) | openai_compatible",
-            "GEMINI_API_KEY / GOOGLE_API_KEY": "required for gemini",
-            "GEMINI_MODEL_NAME / LLM_MODEL_NAME": "default gemini-3.8-flash",
+            "LLM_PROVIDER": "gemini (default) | ollama | llamacpp | groq | openrouter | openai | "
+                            "openai_compatible (any Chat Completions server; set LLM_BASE_URL)",
+            "LLM_MODEL_NAME": "model for any provider (required except gemini: default gemini-3.8-flash)",
+            "keys": "GEMINI_API_KEY | GROQ_API_KEY | OPENROUTER_API_KEY | OPENAI_API_KEY | "
+                    "OPENAI_COMPATIBLE_API_KEY, or LLM_API_KEY for any; ollama/llamacpp need none",
+            "LLM_BASE_URL": "override the provider's base URL (required for openai_compatible)",
             "WTP_MAX_ATTEMPTS": "tries per model call / transcript fetch, default 3",
             "WTP_RETRY_BASE_DELAY": "seconds before the 1st retry, doubled each time (+<=25% jitter), default 2",
-            "OPENAI_COMPATIBLE_API_KEY / LLM_API_KEY": "required for openai_compatible",
-            "OPENAI_COMPATIBLE_BASE_URL / LLM_BASE_URL": "required for openai_compatible",
-            "OPENAI_COMPATIBLE_MODEL_NAME": "default gpt-4.1-mini",
             ".env": "loaded from the working directory",
+            "free_options": "ollama/llamacpp (local, no key, no quota); gemini, groq, openrouter ':free' "
+                            "models have rate-limited free tiers. `--check` shows what is configured.",
         },
         "vocabularies": {
             "phase": sorted(PHASE_VALUES),

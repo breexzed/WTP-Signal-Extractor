@@ -143,8 +143,18 @@ class StructuredParsing(unittest.TestCase):
     def test_missing_section_is_a_warning(self):
         partial = dict(SAMPLE_JSON)
         del partial["gatekeeper_mentions"]
-        self.assertIn("Model JSON is missing 'gatekeeper_mentions'.",
+        self.assertIn("Model JSON violates schema at $.gatekeeper_mentions: missing",
                       parse_structured_output(json.dumps(partial))["parse_warnings"])
+
+    def test_schema_violations_are_warnings(self):
+        bad = json.loads(SAMPLE_JSON_TEXT)
+        bad["behavior_signals"][0]["category"] = "Vibes"
+        bad["pass1_summary"]["total_high_signal_moments"] = "two"
+        bad["extra"] = 1
+        warnings = parse_structured_output(json.dumps(bad))["parse_warnings"]
+        self.assertTrue(any("behavior_signals[0].category: 'Vibes' not one of" in w for w in warnings))
+        self.assertTrue(any("total_high_signal_moments: expected integer" in w for w in warnings))
+        self.assertTrue(any("$.extra: unexpected field" in w for w in warnings))
 
     def test_not_json_raises_malformed(self):
         with self.assertRaises(MalformedModelOutput):
@@ -162,16 +172,62 @@ class Providers(unittest.TestCase):
             self.assertEqual(config.response_mime_type, "application/json")
             self.assertEqual(config.response_json_schema, MODEL_OUTPUT_SCHEMA)
 
-    def test_openai_sends_strict_schema(self):
+    def reply(self, text="{}"):
+        return MagicMock(choices=[MagicMock(message=MagicMock(content=text))])
+
+    def test_openai_compatible_uses_chat_completions_with_strict_schema(self):
         with patch("providers.openai_compatible.OpenAI") as client_cls:
             from providers.openai_compatible import OpenAICompatibleProvider
-            client = client_cls.return_value
-            client.responses.create.return_value = MagicMock(output_text="{}")
-            OpenAICompatibleProvider(ProviderConfig("openai_compatible", "m", "k", "http://x")).generate(
-                "p", "s", MODEL_OUTPUT_SCHEMA)
-            fmt = client.responses.create.call_args.kwargs["text"]["format"]
-            self.assertEqual((fmt["type"], fmt["strict"]), ("json_schema", True))
-            self.assertEqual(fmt["schema"], MODEL_OUTPUT_SCHEMA)
+            create = client_cls.return_value.chat.completions.create
+            create.return_value = self.reply()
+            provider = OpenAICompatibleProvider(ProviderConfig("ollama", "m", "", "http://x"))
+            provider.generate("p", "s", MODEL_OUTPUT_SCHEMA)
+            fmt = create.call_args.kwargs["response_format"]
+            self.assertEqual((fmt["type"], fmt["json_schema"]["strict"]), ("json_schema", True))
+            self.assertEqual(fmt["json_schema"]["schema"], MODEL_OUTPUT_SCHEMA)
+            self.assertEqual(provider.structured_mode, "json_schema")
+
+    def test_falls_back_to_json_object_when_schema_is_rejected(self):
+        import httpx
+        from openai import BadRequestError
+        rejected = BadRequestError("response_format json_schema not supported",
+                                   response=httpx.Response(400, request=httpx.Request("POST", "http://x")),
+                                   body=None)
+        with patch("providers.openai_compatible.OpenAI") as client_cls:
+            from providers.openai_compatible import OpenAICompatibleProvider
+            create = client_cls.return_value.chat.completions.create
+            create.side_effect = [rejected, self.reply('{"ok": true}')]
+            provider = OpenAICompatibleProvider(ProviderConfig("groq", "m", "k", "http://x"))
+            self.assertEqual(provider.generate("p", "sys", MODEL_OUTPUT_SCHEMA), '{"ok": true}')
+            second = create.call_args_list[1].kwargs
+            self.assertEqual(second["response_format"], {"type": "json_object"})
+            self.assertIn('"behavior_signals"', second["messages"][0]["content"])  # schema in prompt
+            self.assertEqual(provider.structured_mode, "json_object")
+
+
+class ProviderPresets(unittest.TestCase):
+    @patch.dict(os.environ, {"LLM_PROVIDER": "ollama", "LLM_MODEL_NAME": "qwen2.5:7b"}, clear=True)
+    def test_ollama_needs_no_key(self):
+        config = main.get_provider_config()
+        self.assertEqual((config.base_url, config.model_name), ("http://localhost:11434/v1", "qwen2.5:7b"))
+
+    @patch.dict(os.environ, {"LLM_PROVIDER": "groq", "LLM_MODEL_NAME": "m"}, clear=True)
+    def test_hosted_preset_names_its_key(self):
+        with self.assertRaises(main.UsageError) as ctx:
+            main.get_provider_config()
+        self.assertIn("GROQ_API_KEY", str(ctx.exception))
+
+    @patch.dict(os.environ, {"LLM_PROVIDER": "ollama"}, clear=True)
+    def test_missing_model_says_how_to_find_one(self):
+        with self.assertRaises(main.UsageError) as ctx:
+            main.get_provider_config()
+        self.assertIn("ollama list", str(ctx.exception))
+
+    @patch.dict(os.environ, {"LLM_PROVIDER": "nope"}, clear=True)
+    def test_unknown_provider_lists_choices(self):
+        with self.assertRaises(main.UsageError) as ctx:
+            main.get_provider_config()
+        self.assertIn("ollama", str(ctx.exception))
 
 
 class Retries(unittest.TestCase):

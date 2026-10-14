@@ -114,15 +114,29 @@ position-intelligence signal in two; the schema-enforced path can't make that mi
 
 ## Configuration
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `LLM_PROVIDER` | `gemini` | or `openai_compatible` |
-| `GEMINI_API_KEY` / `GOOGLE_API_KEY` | — | Gemini key |
-| `GEMINI_MODEL_NAME` | `gemini-3.8-flash` | (`gemini-2.5-flash` now returns 404 for new users) |
-| `OPENAI_COMPATIBLE_API_KEY`, `_BASE_URL`, `_MODEL_NAME` | —, —, `gpt-4.1-mini` | any server with the OpenAI Responses API and strict JSON schema |
-| `WTP_MAX_ATTEMPTS`, `WTP_RETRY_BASE_DELAY` | `3`, `2` | retry policy |
+Works with any model that speaks the OpenAI Chat Completions API, plus Gemini natively.
 
-`.env` is read from the working directory. `--check` reports whether a key is present, never the key.
+| `LLM_PROVIDER` | Needs | Free? |
+|---|---|---|
+| `gemini` (default) | `GEMINI_API_KEY` | free tier, rate limited |
+| `ollama` | `LLM_MODEL_NAME` (see `ollama list`) | local, no key, no quota |
+| `llamacpp` | `LLM_MODEL_NAME`, `llama-server` on :8080 | local |
+| `groq` | `GROQ_API_KEY`, `LLM_MODEL_NAME` | free tier |
+| `openrouter` | `OPENROUTER_API_KEY`, `LLM_MODEL_NAME` (`…:free` models) | free models |
+| `openai` | `OPENAI_API_KEY`, `LLM_MODEL_NAME` | paid |
+| `openai_compatible` | `LLM_BASE_URL`, `LLM_MODEL_NAME`, `LLM_API_KEY` if needed | any server |
+
+The tool asks the server to enforce the schema (`json_schema`). If the server refuses, it asks for
+plain JSON with the schema in the prompt (`json_object`). Either way the reply is checked against
+the schema locally, and `run.structured_mode` says which happened.
+
+Retries: `WTP_MAX_ATTEMPTS` (3) and `WTP_RETRY_BASE_DELAY` (2 s). `.env` is read from the working
+directory. `--check` reports whether a key is present, never the key.
+
+**Local run, 2026-10-14** (`qwen2.5:0.5b` on CPU, 3.7k-char transcript): valid schema-enforced JSON
+on the first attempt in 89 s, but 7 of 18 quotes were not in the transcript (one was the prompt's
+own definition of a gatekeeper). The run came back `degraded`. A model that small works for
+plumbing, not analysis; the quote check is what tells you.
 
 ## Repository
 
@@ -145,7 +159,7 @@ AGENTS.md          operating manual for AI agents (CLAUDE.md imports it)
 ```
 
 ```bash
-uv run python -m unittest discover -s tests -t .     # 63 tests, ~13 s, no network
+uv run python -m unittest discover -s tests -t .     # 70 tests, ~12 s, no network
 ```
 
 ## Limits

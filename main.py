@@ -40,7 +40,6 @@ from verify import verify_quotes
 # gemini-2.5-flash now returns 404 "no longer available to new users" (checked
 # 2026-10-14); the API names gemini-3.8-flash as its replacement.
 DEFAULT_GEMINI_MODEL = "gemini-3.8-flash"
-DEFAULT_OPENAI_COMPATIBLE_MODEL = "gpt-4.1-mini"
 DEFAULT_OUTPUT_DIR = "outputs"
 DEFAULT_REPORTS_DIR = "reports"
 SESSION_CONTEXT_FIELDS = [
@@ -83,73 +82,84 @@ def normalize_youtube_input(text: str) -> str:
     return text
 
 
-def get_api_key() -> str:
-    for env_var in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GEMINI_API_KEYS"):
-        value = os.getenv(env_var)
-        if value:
-            return value
-    raise UsageError(
-        "Missing Gemini API key. Set GEMINI_API_KEY or GOOGLE_API_KEY in the environment or .env."
-    )
+# One row per provider. Anything that speaks the OpenAI Chat Completions API
+# works through "openai_compatible" with LLM_BASE_URL; the rest are shortcuts.
+# base URLs checked 2026-10-14 (Groq/OpenAI 401 without a key, OpenRouter 200,
+# Ollama local). Model names go stale, so only Gemini has a default.
+PROVIDERS: dict[str, dict[str, object]] = {
+    "gemini": {"kind": "gemini", "key_env": ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GEMINI_API_KEYS"),
+               "model_env": ("GEMINI_MODEL_NAME",), "default_model": DEFAULT_GEMINI_MODEL,
+               "free": "Google AI Studio free tier (rate limited)"},
+    "ollama": {"kind": "openai", "base_url": "http://localhost:11434/v1", "key_env": (),
+               "model_env": ("OLLAMA_MODEL",), "free": "local, no key; `ollama list` shows models"},
+    "llamacpp": {"kind": "openai", "base_url": "http://localhost:8080/v1", "key_env": (),
+                 "model_env": (), "free": "local llama-server, no key"},
+    "groq": {"kind": "openai", "base_url": "https://api.groq.com/openai/v1",
+             "key_env": ("GROQ_API_KEY",), "model_env": (), "free": "free tier (rate limited)"},
+    "openrouter": {"kind": "openai", "base_url": "https://openrouter.ai/api/v1",
+                   "key_env": ("OPENROUTER_API_KEY",), "model_env": (),
+                   "free": "has ':free' models (rate limited)"},
+    "openai": {"kind": "openai", "base_url": "https://api.openai.com/v1",
+               "key_env": ("OPENAI_API_KEY",), "model_env": (), "free": "paid"},
+    "openai_compatible": {"kind": "openai", "key_env": ("OPENAI_COMPATIBLE_API_KEY",),
+                          "model_env": ("OPENAI_COMPATIBLE_MODEL_NAME",),
+                          "free": "any server: set LLM_BASE_URL"},
+}
 
 
 def get_provider_name() -> str:
     return os.getenv("LLM_PROVIDER", "gemini").strip().lower() or "gemini"
 
 
-def get_model_name(provider_name: str) -> str:
-    if provider_name == "openai_compatible":
-        return (
-            os.getenv("OPENAI_COMPATIBLE_MODEL_NAME")
-            or os.getenv("LLM_MODEL_NAME")
-            or DEFAULT_OPENAI_COMPATIBLE_MODEL
-        )
-    return os.getenv("GEMINI_MODEL_NAME") or os.getenv("LLM_MODEL_NAME") or DEFAULT_GEMINI_MODEL
+def provider_preset(provider_name: str) -> dict[str, object]:
+    if provider_name not in PROVIDERS:
+        raise UsageError(f"Unsupported provider '{provider_name}'. Supported: {', '.join(PROVIDERS)}.")
+    return PROVIDERS[provider_name]
 
 
-def get_openai_compatible_api_key() -> str:
-    value = os.getenv("OPENAI_COMPATIBLE_API_KEY") or os.getenv("LLM_API_KEY")
-    if value:
-        return value
-    raise UsageError(
-        "Missing OpenAI-compatible API key. Set OPENAI_COMPATIBLE_API_KEY or LLM_API_KEY."
-    )
+def first_env(names) -> str | None:
+    for name in names:
+        value = os.getenv(name)
+        if value:
+            return value
+    return None
 
 
-def get_openai_compatible_base_url() -> str:
-    value = os.getenv("OPENAI_COMPATIBLE_BASE_URL") or os.getenv("LLM_BASE_URL")
-    if value:
-        return value
-    raise UsageError(
-        "Missing OpenAI-compatible base URL. Set OPENAI_COMPATIBLE_BASE_URL or LLM_BASE_URL."
-    )
+def get_model_name(provider_name: str) -> str | None:
+    preset = PROVIDERS.get(provider_name, {})
+    return (first_env(preset.get("model_env", ())) or os.getenv("LLM_MODEL_NAME")
+            or preset.get("default_model"))
 
 
 def get_provider_config() -> ProviderConfig:
     provider_name = get_provider_name()
-    if provider_name == "openai_compatible":
-        return ProviderConfig(
-            provider_name=provider_name,
-            model_name=get_model_name(provider_name),
-            api_key=get_openai_compatible_api_key(),
-            base_url=get_openai_compatible_base_url(),
-        )
-    if provider_name != "gemini":
-        raise UsageError(
-            f"Unsupported provider '{provider_name}'. Supported providers: gemini, openai_compatible."
-        )
-    return ProviderConfig(
-        provider_name=provider_name,
-        model_name=get_model_name(provider_name),
-        api_key=get_api_key(),
-    )
+    preset = provider_preset(provider_name)
+    model = get_model_name(provider_name)
+    if not model:
+        hint = " (run `ollama list`)" if provider_name == "ollama" else ""
+        raise UsageError(f"No model set for provider '{provider_name}'. Set LLM_MODEL_NAME{hint}.")
+
+    key_env = preset["key_env"]
+    api_key = first_env(key_env) or os.getenv("LLM_API_KEY") or ""
+    if key_env and not api_key:
+        raise UsageError(f"Missing API key for '{provider_name}'. Set {' or '.join(key_env)} "
+                         "(or LLM_API_KEY) in the environment or .env.")
+
+    if preset["kind"] == "gemini":
+        return ProviderConfig(provider_name=provider_name, model_name=model, api_key=api_key)
+    base_url = (os.getenv("LLM_BASE_URL") or os.getenv("OPENAI_COMPATIBLE_BASE_URL")
+                or preset.get("base_url"))
+    if not base_url:
+        raise UsageError(f"Missing base URL for '{provider_name}'. Set LLM_BASE_URL.")
+    return ProviderConfig(provider_name=provider_name, model_name=model, api_key=api_key,
+                          base_url=str(base_url))
 
 
 def get_llm_provider():
     config = get_provider_config()
-    if config.provider_name == "openai_compatible":
-        return OpenAICompatibleProvider(config)
-    return GeminiProvider(config)
+    if PROVIDERS[config.provider_name]["kind"] == "gemini":
+        return GeminiProvider(config)
+    return OpenAICompatibleProvider(config)
 
 
 def preflight() -> dict[str, object]:
@@ -351,6 +361,9 @@ def run_metadata(started: float, mode: str, output_format: str, attempts: dict[s
         "schema_version": contract.SCHEMA_VERSION,
         "mode": mode,  # "live" (model called) or "replay" (saved model output re-parsed)
         "output_format": output_format,  # "json" (schema-enforced) or "legacy_text" (old runs)
+        # json_schema = server enforced the schema; json_object = only JSON was enforced
+        # and the schema was checked locally (see parse_warnings for violations).
+        "structured_mode": LAST_STRUCTURED_MODE if mode == "live" else None,
         "attempts": attempts,
         "provider": provider if mode == "live" else None,
         "model": get_model_name(provider) if mode == "live" else None,
@@ -380,15 +393,26 @@ def _spinner(stop_event: threading.Event, label: str) -> None:
     sys.stderr.flush()
 
 
+# How the last reply was constrained (see providers): json_schema | json_object.
+LAST_STRUCTURED_MODE: str | None = None
+
+
 def call_model(transcript: str) -> str:
+    global LAST_STRUCTURED_MODE
     prompt = f"Analyze this transcript for market intelligence signals:\n\n{transcript}"
     provider = get_llm_provider()
-    return provider.generate(prompt, SYSTEM_PROMPT, MODEL_OUTPUT_SCHEMA)
+    text = provider.generate(prompt, SYSTEM_PROMPT, MODEL_OUTPUT_SCHEMA)
+    mode = getattr(provider, "structured_mode", None)
+    LAST_STRUCTURED_MODE = mode if isinstance(mode, str) else None
+    return text
 
 
 def call_and_parse(transcript: str) -> tuple[str, dict, str, int]:
     """Model call + parse, retried together: a reply that is not valid JSON
     (MalformedModelOutput) gets another attempt, like a 503 does."""
+    global LAST_STRUCTURED_MODE
+    LAST_STRUCTURED_MODE = None  # never report a previous source's mode
+
     def attempt():
         raw = call_model(transcript)
         parsed, output_format = parse_any(raw)

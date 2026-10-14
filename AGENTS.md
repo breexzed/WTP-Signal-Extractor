@@ -57,6 +57,14 @@ Rules the CLI keeps (tests enforce them, `test_agent_contract.py`):
 4. **The signals**: `pass1`, `pass2`, `combined_summary`. Keys inside signal objects are the
    model's UPPERCASE labels (`QUOTE`, `CATEGORY`, ...).
 
+## Models
+Any OpenAI-Chat-Completions server or Gemini: `LLM_PROVIDER` = gemini | ollama | llamacpp | groq |
+openrouter | openai | openai_compatible, plus `LLM_MODEL_NAME` (see `--describe` → environment).
+For free, unlimited local runs: `LLM_PROVIDER=ollama LLM_MODEL_NAME=<from ollama list>`.
+Check `run.structured_mode`: `json_object` means the server did not enforce the schema, so look
+at `parse_warnings` for violations. Small local models produce valid JSON but invent quotes;
+trust `evidence`, not the model.
+
 ## Cost and side effects
 - A live run makes **one LLM call per source** (paid) and one YouTube fetch per URL.
   Transient failures are retried (`WTP_MAX_ATTEMPTS`, default 3, backoff from
@@ -82,7 +90,7 @@ Replay of one source: ~1.4 s wall. Quote check worst case: ~0.4 s for 35 fuzzy q
 
 ## Change the code
 ```bash
-uv run python -m unittest discover -s tests -t .    # 63 tests, ~13 s, no network
+uv run python -m unittest discover -s tests -t .    # 70 tests, ~12 s, no network
 ```
 | file | role |
 |---|---|
@@ -96,7 +104,7 @@ uv run python -m unittest discover -s tests -t .    # 63 tests, ~13 s, no networ
 | `verify.py` | quote ↔ transcript matching (`evidence`) |
 | `aggregate.py` | session rollups across sources |
 | `render.py`, `session_store.py` | human report; artifact writing |
-| `providers/` | Gemini (`response_json_schema`) and OpenAI-compatible (strict `json_schema`) adapters: `generate(prompt, system, schema) -> str` |
+| `providers/` | Gemini (`response_json_schema`) and OpenAI Chat Completions (strict `json_schema`, falls back to `json_object`) adapters: `generate(prompt, system, schema) -> str`; presets in `main.PROVIDERS` |
 | `tests/` | `test_main` (units), `test_agent_contract` (CLI contract, subprocess), `test_structured` (schema, retries) |
 
 Invariants: keep stdout clean under `--json`; every failure becomes a result with a

@@ -12,6 +12,7 @@ class GeminiProvider:
     def __init__(self, config: ProviderConfig):
         self._config = config
         self._client = genai.Client(api_key=config.api_key)
+        self.structured_mode = "json_schema"  # Gemini always enforces the schema
 
     def generate(self, prompt: str, system_instruction: str, schema: dict[str, Any]) -> str:
         response = self._client.models.generate_content(
