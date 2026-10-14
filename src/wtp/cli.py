@@ -141,8 +141,10 @@ def get_provider_config() -> ProviderConfig:
     key_env = preset["key_env"]
     api_key = first_env(key_env) or os.getenv("LLM_API_KEY") or ""
     if key_env and not api_key:
-        raise UsageError(f"Missing API key for '{provider_name}'. Set {' or '.join(key_env)} "
-                         "(or LLM_API_KEY) in the environment or .env.")
+        user_env = install.config_dir() / ".env"
+        raise UsageError(f"Missing API key for '{provider_name}'. Add `{key_env[0]}=...` to {user_env} "
+                         f"(or export {' / '.join(key_env)} or LLM_API_KEY). "
+                         "No key needed for local models: LLM_PROVIDER=ollama.")
 
     if preset["kind"] == "gemini":
         return ProviderConfig(provider_name=provider_name, model_name=model, api_key=api_key)
@@ -671,7 +673,9 @@ def run_sources(
 def run_single(result_and_transcript, json_mode: bool, output_dir: str) -> int:
     result, transcript = result_and_transcript
     text_report = render_result(result)
-    write_artifacts(result, text_report, output_dir=output_dir, transcript=transcript)
+    # Name files after the source (e.g. youtube_url-<video>-<time>), like batch runs do.
+    write_artifacts(result, text_report, output_dir=output_dir, transcript=transcript,
+                    session_id=str(result["source"]["source_id"]))
     emit(result, text_report, json_mode, "RESULTS")
     return contract.STATUS_EXIT[result["status"]]
 

@@ -106,6 +106,7 @@ class Discoverability(unittest.TestCase):
         self.assertEqual(code, EXIT_USAGE)
         self.assertFalse(doc["api_key_present"])
         self.assertIn("GEMINI_API_KEY", doc["config_error"])
+        self.assertIn(".config/wtp/.env", doc["config_error"])   # says which file, not just ".env"
 
     @patch.dict("os.environ", {"GEMINI_API_KEY": "secret-value-123"}, clear=True)
     def test_check_with_key(self):
@@ -151,6 +152,7 @@ class JsonContract(TempDirTest):
         result = json.loads(out)
         for key in ("text_path", "json_path", "transcript_path"):
             self.assertTrue(Path(result["artifacts"][key]).is_file(), key)
+            self.assertIn(result["source"]["source_id"], Path(result["artifacts"][key]).name)
         self.assertEqual(Path(result["source"]["transcript_path"]).read_text(), FULL_TRANSCRIPT)
         saved = json.loads(Path(result["artifacts"]["json_path"]).read_text())
         self.assertEqual(saved["artifacts"], result["artifacts"])

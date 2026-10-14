@@ -52,7 +52,7 @@ files it writes and the docs. Each of those is designed so an agent never has to
 Needs [uv](https://docs.astral.sh/uv/) (it fetches Python 3.14 if you don't have it).
 
 ```bash
-uv tool install git+https://github.com/breexzed/WTP-Signal-Extractor@v0.5.0
+uv tool install git+https://github.com/breexzed/WTP-Signal-Extractor@v0.5.1
 mkdir -p ~/.config/wtp && echo 'GEMINI_API_KEY=...' >> ~/.config/wtp/.env   # or any provider below
 wtp --check              # config OK? (JSON, no network)
 wtp --check-update       # newer release on GitHub? (exit 1 = yes)
