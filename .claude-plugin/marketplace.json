@@ -1,5 +1,7 @@
 {
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "wtp",
+  "description": "wtp: checked willingness-to-pay evidence from transcripts, as a Claude Code skill.",
   "owner": {
     "name": "Breexzed",
     "email": "breexzed@outlook.com"
