@@ -88,6 +88,12 @@ class Discoverability(unittest.TestCase):
         self.assertEqual(skeleton_keys - set(doc["result_fields"]), set())
         self.assertEqual(doc["schema_version"], SCHEMA_VERSION)
 
+    def test_versions_agree(self):
+        import tomllib
+        from contract import TOOL_VERSION
+        with open(REPO / "pyproject.toml", "rb") as f:
+            self.assertEqual(tomllib.load(f)["project"]["version"], TOOL_VERSION)
+
     def test_help_points_agents_to_describe(self):
         p = run_cli("--help")
         self.assertIn("--describe", p.stdout)
