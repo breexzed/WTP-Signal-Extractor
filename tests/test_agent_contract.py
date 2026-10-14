@@ -16,9 +16,9 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-import main
-from aggregate import aggregate_source_results
-from contract import (
+from wtp import cli as main
+from wtp.aggregate import aggregate_source_results
+from wtp.contract import (
     EXIT_ANALYSIS_FAILED,
     EXIT_DEGRADED,
     EXIT_OK,
@@ -26,10 +26,10 @@ from contract import (
     EXIT_USAGE,
     SCHEMA_VERSION,
 )
-from diagnostics import build_diagnostics, extract_recommended_phase
-from extract import parse_model_output
+from wtp.diagnostics import build_diagnostics, extract_recommended_phase
+from wtp.extract import parse_model_output
 from tests.test_main import SAMPLE_RAW_OUTPUT
-from verify import verify_quotes
+from wtp.verify import verify_quotes
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -46,7 +46,7 @@ FULL_TRANSCRIPT = (
 def run_cli(*args: str, stdin: str | None = None) -> subprocess.CompletedProcess:
     """Run main.py the way an agent does: a subprocess, no terminal on stdin."""
     return subprocess.run(
-        [sys.executable, str(REPO / "main.py"), *args],
+        [sys.executable, "-m", "wtp", *args],
         input=stdin, capture_output=True, text=True, timeout=60, cwd=REPO,
         stdin=None if stdin is not None else subprocess.DEVNULL,
     )
@@ -90,7 +90,7 @@ class Discoverability(unittest.TestCase):
 
     def test_versions_agree(self):
         import tomllib
-        from contract import TOOL_VERSION
+        from wtp.contract import TOOL_VERSION
         with open(REPO / "pyproject.toml", "rb") as f:
             self.assertEqual(tomllib.load(f)["project"]["version"], TOOL_VERSION)
 
@@ -101,8 +101,7 @@ class Discoverability(unittest.TestCase):
 
     @patch.dict("os.environ", {"LLM_PROVIDER": "gemini"}, clear=True)
     def test_check_without_key_is_usage_error_and_never_leaks_keys(self):
-        with patch("main.Path.exists", return_value=False):
-            code, out, _ = run_in_process(["--check"])
+        code, out, _ = run_in_process(["--check"])
         doc = json.loads(out)
         self.assertEqual(code, EXIT_USAGE)
         self.assertFalse(doc["api_key_present"])
@@ -132,7 +131,7 @@ class NeverHangs(unittest.TestCase):
 class JsonContract(TempDirTest):
     def analyze(self, transcript: str, raw: str = SAMPLE_RAW_OUTPUT, extra=()):
         path = self.write("t.txt", transcript)
-        with patch("main.call_model", return_value=raw):
+        with patch("wtp.cli.call_model", return_value=raw):
             return run_in_process(["--transcript-file", str(path), "--json",
                                    "--out-dir", str(self.tmp / "out"), *extra])
 
@@ -164,7 +163,7 @@ class JsonContract(TempDirTest):
         self.assertGreater(result["evidence"]["not_found"], 0)
 
     def test_stdin_transcript(self):
-        with patch("main.call_model", return_value=SAMPLE_RAW_OUTPUT), \
+        with patch("wtp.cli.call_model", return_value=SAMPLE_RAW_OUTPUT), \
                 patch("sys.stdin", io.StringIO(FULL_TRANSCRIPT)):
             code, out, _ = run_in_process(["--transcript-file", "-", "--json",
                                            "--out-dir", str(self.tmp)])
@@ -173,7 +172,7 @@ class JsonContract(TempDirTest):
 
     def test_provider_error_is_data_not_a_crash(self):
         path = self.write("t.txt", FULL_TRANSCRIPT)
-        with patch("main.call_model", side_effect=TimeoutError("deadline exceeded")):
+        with patch("wtp.cli.call_model", side_effect=TimeoutError("deadline exceeded")):
             code, out, _ = run_in_process(["--transcript-file", str(path), "--json",
                                            "--out-dir", str(self.tmp)])
         result = json.loads(out)
@@ -182,7 +181,7 @@ class JsonContract(TempDirTest):
         self.assertIn("TimeoutError: deadline exceeded", result["error"])
 
     def test_transcript_fetch_failure(self):
-        with patch("main.get_transcript_from_url", side_effect=RuntimeError("Subtitles are disabled")):
+        with patch("wtp.cli.get_transcript_from_url", side_effect=RuntimeError("Subtitles are disabled")):
             code, out, _ = run_in_process(["--url", "https://youtu.be/abc123", "--json",
                                            "--out-dir", str(self.tmp)])
         result = json.loads(out)
@@ -194,7 +193,7 @@ class JsonContract(TempDirTest):
             {"source_id": "good", "transcript": FULL_TRANSCRIPT},
             {"source_id": "empty"},
         ]}))
-        with patch("main.call_model", return_value=SAMPLE_RAW_OUTPUT):
+        with patch("wtp.cli.call_model", return_value=SAMPLE_RAW_OUTPUT):
             code, out, _ = run_in_process(["--session", str(manifest), "--json",
                                            "--out-dir", str(self.tmp)])
         session = json.loads(out)
@@ -207,7 +206,7 @@ class Replay(TempDirTest):
     def test_replay_never_calls_the_model(self):
         raw = self.write("raw.txt", SAMPLE_RAW_OUTPUT)
         transcript = self.write("t.txt", FULL_TRANSCRIPT)
-        with patch("main.call_model", side_effect=AssertionError("network call in replay")):
+        with patch("wtp.cli.call_model", side_effect=AssertionError("network call in replay")):
             code, out, _ = run_in_process(["--replay", str(raw), "--transcript-file", str(transcript),
                                            "--json", "--out-dir", str(self.tmp)])
         result = json.loads(out)

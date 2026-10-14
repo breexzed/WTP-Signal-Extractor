@@ -20,28 +20,28 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from dotenv import load_dotenv
 from youtube_transcript_api import YouTubeTranscriptApi
 
-import contract
-from aggregate import build_session_result
-from diagnostics import build_diagnostics
-from model_output import MODEL_OUTPUT_SCHEMA, parse_any
-from prompt import SYSTEM_PROMPT
-from providers.base import ProviderConfig
-from providers.gemini import GeminiProvider
-from providers.openai_compatible import OpenAICompatibleProvider
-from render import render_result, render_session_report, safe_console_text
-from schemas import merge_result
-from session_store import sanitize_token, write_artifacts, write_session_artifacts
-from retry import with_retries
-from verify import verify_quotes
+from wtp import contract, install
+from wtp.aggregate import build_session_result
+from wtp.diagnostics import build_diagnostics
+from wtp.model_output import MODEL_OUTPUT_SCHEMA, parse_any
+from wtp.prompt import SYSTEM_PROMPT
+from wtp.providers.base import ProviderConfig
+from wtp.providers.gemini import GeminiProvider
+from wtp.providers.openai_compatible import OpenAICompatibleProvider
+from wtp.render import render_result, render_session_report, safe_console_text
+from wtp.schemas import merge_result
+from wtp.session_store import sanitize_token, write_artifacts, write_session_artifacts
+from wtp.retry import with_retries
+from wtp.verify import verify_quotes
 
 # gemini-2.5-flash now returns 404 "no longer available to new users" (checked
 # 2026-10-14); the API names gemini-3.8-flash as its replacement.
 DEFAULT_GEMINI_MODEL = "gemini-3.8-flash"
-DEFAULT_OUTPUT_DIR = "outputs"
-DEFAULT_REPORTS_DIR = "reports"
+CONFIG_FILES = install.load_config()  # before anything reads os.environ
+DEFAULT_OUTPUT_DIR = str(install.data_dir() / "runs")
+DEFAULT_REPORTS_DIR = str(install.data_dir() / "sessions")
 SESSION_CONTEXT_FIELDS = [
     "vertical",
     "operator_type",
@@ -56,7 +56,6 @@ PROMPT_SHA256 = hashlib.sha256(
     (SYSTEM_PROMPT + json.dumps(MODEL_OUTPUT_SCHEMA, sort_keys=True)).encode("utf-8")
 ).hexdigest()
 
-load_dotenv()
 
 
 class UsageError(RuntimeError):
@@ -167,7 +166,10 @@ def preflight() -> dict[str, object]:
     checks: dict[str, object] = {"tool_version": contract.TOOL_VERSION,
                                  "schema_version": contract.SCHEMA_VERSION,
                                  "cwd": os.getcwd(),
-                                 "dotenv_found": Path(".env").exists()}
+                                 "config_files_loaded": CONFIG_FILES,
+                                 "config_dir": str(install.config_dir()),
+                                 "data_dir": str(install.data_dir()),
+                                 "installed_as_uv_tool": install.installed_as_uv_tool()}
     provider_name = get_provider_name()
     checks["provider"] = provider_name
     checks["model"] = get_model_name(provider_name)
@@ -179,10 +181,10 @@ def preflight() -> dict[str, object]:
     except UsageError as error:
         checks["api_key_present"] = False
         checks["config_error"] = str(error)
-    for directory in (DEFAULT_OUTPUT_DIR, DEFAULT_REPORTS_DIR):
-        target = Path(directory)
-        probe = target if target.exists() else target.parent
-        checks[f"{directory}_writable"] = os.access(probe.resolve(), os.W_OK)
+    probe = install.data_dir()
+    while not probe.exists() and probe != probe.parent:  # stop at / even if nothing exists
+        probe = probe.parent
+    checks["data_dir_writable"] = os.access(probe, os.W_OK)
     checks["ok"] = checks["config_error"] is None
     return checks
 
@@ -730,6 +732,12 @@ def build_parser() -> argparse.ArgumentParser:
                              f"{DEFAULT_REPORTS_DIR}/<session_id>/ for --session).")
     parser.add_argument("--describe", action="store_true",
                         help="Print the machine contract as JSON and exit. No network.")
+    parser.add_argument("--version", action="store_true", help="Print the version and exit.")
+    parser.add_argument("--check-update", action="store_true",
+                        help="Compare with the latest GitHub release (network). JSON; exit 0 = current, "
+                             "1 = update available, 3 = GitHub unreachable.")
+    parser.add_argument("--self-update", action="store_true",
+                        help="Install the latest GitHub release over this one (uv tool installs only). JSON.")
     parser.add_argument("--check", action="store_true",
                         help="Preflight: provider, model, API key present, dirs writable. JSON, no network.")
     return parser
@@ -753,6 +761,19 @@ def cli_flags() -> list[dict[str, object]]:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv or [])
 
+    if args.version:
+        print(contract.TOOL_VERSION)
+        return contract.EXIT_OK
+    if args.check_update or args.self_update:
+        try:
+            info = install.self_update() if args.self_update else install.check_update()
+        except OSError as error:
+            log(f"error: could not reach GitHub: {error}")
+            return contract.EXIT_SOURCE_FAILED
+        print(json.dumps(info, indent=2))
+        if args.self_update:
+            return contract.EXIT_OK if info["updated"] or not info["update_available"] else contract.EXIT_USAGE
+        return contract.EXIT_DEGRADED if info["update_available"] else contract.EXIT_OK
     if args.describe:
         print(json.dumps(contract.describe(cli_flags()), indent=2, ensure_ascii=False))
         return contract.EXIT_OK
@@ -821,5 +842,10 @@ def main(argv: list[str] | None = None) -> int:
         return contract.EXIT_USAGE
 
 
-if __name__ == "__main__":
+def entrypoint() -> None:
+    """The `wtp` command."""
     sys.exit(main(sys.argv[1:]))
+
+
+if __name__ == "__main__":
+    entrypoint()

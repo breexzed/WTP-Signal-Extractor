@@ -10,14 +10,14 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import main
-from contract import EXIT_DEGRADED, EXIT_OK, EXIT_USAGE
-from aggregate import aggregate_source_results, build_session_result
-from diagnostics import build_diagnostics
-from extract import parse_model_output
-from render import render_result, render_session_report, safe_console_text
-from schemas import REGISTER_NAMES, merge_result
-from session_store import write_artifacts, write_session_artifacts
+from wtp import cli as main
+from wtp.contract import EXIT_DEGRADED, EXIT_OK, EXIT_USAGE
+from wtp.aggregate import aggregate_source_results, build_session_result
+from wtp.diagnostics import build_diagnostics
+from wtp.extract import parse_model_output
+from wtp.render import render_result, render_session_report, safe_console_text
+from wtp.schemas import REGISTER_NAMES, merge_result
+from wtp.session_store import write_artifacts, write_session_artifacts
 
 
 SAMPLE_RAW_OUTPUT = """
@@ -193,8 +193,8 @@ class MainTests(unittest.TestCase):
         self.assertEqual(config.api_key, "oa-key")
         self.assertEqual(config.base_url, "https://example.com/v1")
 
-    @patch("main.OpenAICompatibleProvider")
-    @patch("main.GeminiProvider")
+    @patch("wtp.cli.OpenAICompatibleProvider")
+    @patch("wtp.cli.GeminiProvider")
     @patch.dict("os.environ", {"GEMINI_API_KEY": "gem-key"}, clear=True)
     def test_get_llm_provider_uses_gemini_by_default(self, gemini_cls, openai_cls):
         provider = object()
@@ -206,8 +206,8 @@ class MainTests(unittest.TestCase):
         gemini_cls.assert_called_once()
         openai_cls.assert_not_called()
 
-    @patch("main.OpenAICompatibleProvider")
-    @patch("main.GeminiProvider")
+    @patch("wtp.cli.OpenAICompatibleProvider")
+    @patch("wtp.cli.GeminiProvider")
     @patch.dict(
         "os.environ",
         {
@@ -232,7 +232,7 @@ class MainTests(unittest.TestCase):
         openai_cls.assert_called_once()
         gemini_cls.assert_not_called()
 
-    @patch("main.get_llm_provider")
+    @patch("wtp.cli.get_llm_provider")
     def test_call_model_delegates_to_provider(self, get_provider_mock):
         provider = get_provider_mock.return_value
         provider.generate.return_value = "provider output"
@@ -424,7 +424,7 @@ class MainTests(unittest.TestCase):
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
-    @patch("main.YouTubeTranscriptApi")
+    @patch("wtp.cli.YouTubeTranscriptApi")
     def test_get_transcript_from_url_returns_joined_text(self, transcript_api_cls):
         transcript_api_cls.return_value.fetch.return_value = [
             {"text": "paid for three tools"},
@@ -526,10 +526,10 @@ class MainTests(unittest.TestCase):
             with patch("builtins.input", side_effect=["2", "We paid for two tools and still depend on Zocdoc.", "End"]), patch(
                 "sys.stdin.isatty", return_value=True,
             ), redirect_stderr(io.StringIO()), patch(
-                "main.call_model",
+                "wtp.cli.call_model",
                 return_value=SAMPLE_RAW_OUTPUT,
             ), patch(
-                "main.write_artifacts",
+                "wtp.cli.write_artifacts",
                 side_effect=write_to_temp,
             ), redirect_stdout(stdout):
                 main.main()
@@ -573,16 +573,16 @@ class MainTests(unittest.TestCase):
 
             stdout = io.StringIO()
             with patch(
-                "main.get_transcript_from_url",
+                "wtp.cli.get_transcript_from_url",
                 return_value="We paid for two tools and still depend on Zocdoc.",
             ), patch(
-                "main.call_model",
+                "wtp.cli.call_model",
                 return_value=SAMPLE_RAW_OUTPUT,
             ), patch(
-                "main.write_artifacts",
+                "wtp.cli.write_artifacts",
                 side_effect=write_source_to_temp,
             ), patch(
-                "main.write_session_artifacts",
+                "wtp.cli.write_session_artifacts",
                 side_effect=write_session_to_temp,
             ), redirect_stdout(stdout), redirect_stderr(io.StringIO()):
                 main.main(
@@ -639,10 +639,10 @@ class MainTests(unittest.TestCase):
         try:
             stdout = io.StringIO()
             with patch(
-                "main.get_transcript_from_url",
+                "wtp.cli.get_transcript_from_url",
                 return_value="We paid for two tools and still depend on Zocdoc.",
             ), patch(
-                "main.call_model",
+                "wtp.cli.call_model",
                 return_value=SAMPLE_RAW_OUTPUT,
             ), patch.object(
                 main,

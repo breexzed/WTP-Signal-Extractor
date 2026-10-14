@@ -5,7 +5,7 @@ from typing import Any
 from google import genai
 from google.genai import types
 
-from providers.base import ProviderConfig
+from wtp.providers.base import ProviderConfig
 
 
 class GeminiProvider:

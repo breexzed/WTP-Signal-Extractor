@@ -8,7 +8,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from schemas import (
+from wtp.install import current_version
+from wtp.schemas import (
     CONFIDENCE_VALUES,
     DEPENDENCY_TYPE_VALUES,
     ENTITY_KIND_VALUES,
@@ -23,7 +24,7 @@ from schemas import (
     empty_result,
 )
 
-TOOL_VERSION = "0.4.0"
+TOOL_VERSION = current_version()  # from the installed package metadata (pyproject.toml)
 # Bump on any breaking change to the result or session JSON shape.
 SCHEMA_VERSION = "2"
 
@@ -143,12 +144,14 @@ def describe(cli_flags: list[dict[str, Any]]) -> dict[str, Any]:
         "schema_version": SCHEMA_VERSION,
         "purpose": "Extract willingness-to-pay (WTP) and FGP pipeline signals from interview/video "
                    "transcripts with an LLM, then verify and diagnose them.",
+        "install": "uv tool install git+https://github.com/breexzed/WTP-Signal-Extractor@<tag>; "
+                   "update with `wtp --self-update` (or `wtp --check-update` to only look)",
         "agent_quickstart": [
-            "python main.py --check            # preflight: config, keys present, no network",
-            "python main.py --url URL --json   # one YouTube source -> result JSON on stdout",
-            "python main.py --transcript-file f.txt --json   # or '-' for stdin",
-            "python main.py --session manifest.json --json   # many sources -> session JSON on stdout",
-            "python main.py --replay raw.txt --transcript-file f.txt --json   # re-parse, no API call",
+            "wtp --check            # preflight: config, keys present, paths; no network",
+            "wtp --url URL --json   # one YouTube source -> result JSON on stdout",
+            "wtp --transcript-file f.txt --json   # or '-' for stdin",
+            "wtp --session manifest.json --json   # many sources -> session JSON on stdout",
+            "wtp --replay raw.txt --transcript-file f.txt --json   # re-parse, no API call",
         ],
         "io_rules": [
             "With --json, stdout carries exactly one JSON document; everything else goes to stderr.",
@@ -167,7 +170,9 @@ def describe(cli_flags: list[dict[str, Any]]) -> dict[str, Any]:
             "LLM_BASE_URL": "override the provider's base URL (required for openai_compatible)",
             "WTP_MAX_ATTEMPTS": "tries per model call / transcript fetch, default 3",
             "WTP_RETRY_BASE_DELAY": "seconds before the 1st retry, doubled each time (+<=25% jitter), default 2",
-            ".env": "loaded from the working directory",
+            ".env": "read from the working directory, then ~/.config/wtp/.env (WTP_CONFIG_DIR); "
+                    "real environment variables win",
+            "WTP_DATA_DIR": "where runs are saved, default ~/.local/share/wtp (runs/, sessions/<id>/)",
             "free_options": "ollama/llamacpp (local, no key, no quota); gemini, groq, openrouter ':free' "
                             "models have rate-limited free tiers. `--check` shows what is configured.",
         },

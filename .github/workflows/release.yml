@@ -1,0 +1,35 @@
+name: release
+
+# Push a tag like v0.5.0 (matching pyproject.toml) to publish a GitHub Release.
+# Users install that tag with:  uv tool install git+https://github.com/breexzed/WTP-Signal-Extractor@v0.5.0
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: tag matches package version
+        run: |
+          version=$(uv run --locked python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          test "v$version" = "$GITHUB_REF_NAME" || { echo "tag $GITHUB_REF_NAME != pyproject v$version"; exit 1; }
+      - run: uv run --locked python -m unittest discover -s tests -t .
+      - run: uv build
+      - name: install the built wheel like a user would
+        run: |
+          uv tool install dist/*.whl
+          wtp --version
+          wtp --check || true
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "$GITHUB_REF_NAME" --generate-notes \
+            --notes "Install: \`uv tool install --force git+https://github.com/${{ github.repository }}@$GITHUB_REF_NAME\` · Update later: \`wtp --self-update\`"

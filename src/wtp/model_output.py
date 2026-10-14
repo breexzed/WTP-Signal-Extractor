@@ -10,9 +10,9 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from extract import parse_model_output as parse_legacy_text
-from schemas import REGISTER_NAMES
-from retry import MalformedModelOutput
+from wtp.extract import parse_model_output as parse_legacy_text
+from wtp.schemas import REGISTER_NAMES
+from wtp.retry import MalformedModelOutput
 
 CONF = ["Low", "Medium", "High"]
 conf_lower = ["low", "medium", "high"]

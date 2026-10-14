@@ -1,0 +1,19 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --locked
+      - run: uv run python -m unittest discover -s tests -t . -v
+      - name: wtp command works and describes itself
+        run: |
+          uv run wtp --version
+          uv run wtp --describe | python -c "import json,sys; d=json.load(sys.stdin); print(d['tool_version'], len(d['flags']), 'flags')"

@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from providers.base import ProviderConfig
+from wtp.providers.base import ProviderConfig
 
 try:
     from openai import BadRequestError, OpenAI

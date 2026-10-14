@@ -14,12 +14,12 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import main
-from contract import EXIT_ANALYSIS_FAILED, EXIT_OK, EXIT_SOURCE_FAILED
-from extract import parse_model_output
-from model_output import MODEL_OUTPUT_SCHEMA, parse_any, parse_structured_output
-from providers.base import ProviderConfig
-from retry import MalformedModelOutput, is_transient, with_retries
+from wtp import cli as main
+from wtp.contract import EXIT_ANALYSIS_FAILED, EXIT_OK, EXIT_SOURCE_FAILED
+from wtp.extract import parse_model_output
+from wtp.model_output import MODEL_OUTPUT_SCHEMA, parse_any, parse_structured_output
+from wtp.providers.base import ProviderConfig
+from wtp.retry import MalformedModelOutput, is_transient, with_retries
 from tests.test_agent_contract import FULL_TRANSCRIPT
 from tests.test_main import SAMPLE_RAW_OUTPUT
 
@@ -163,8 +163,8 @@ class StructuredParsing(unittest.TestCase):
 
 class Providers(unittest.TestCase):
     def test_gemini_sends_the_schema(self):
-        with patch("providers.gemini.genai.Client") as client_cls:
-            from providers.gemini import GeminiProvider
+        with patch("wtp.providers.gemini.genai.Client") as client_cls:
+            from wtp.providers.gemini import GeminiProvider
             client = client_cls.return_value
             client.models.generate_content.return_value = MagicMock(text="{}")
             GeminiProvider(ProviderConfig("gemini", "m", "k")).generate("p", "s", MODEL_OUTPUT_SCHEMA)
@@ -176,8 +176,8 @@ class Providers(unittest.TestCase):
         return MagicMock(choices=[MagicMock(message=MagicMock(content=text))])
 
     def test_openai_compatible_uses_chat_completions_with_strict_schema(self):
-        with patch("providers.openai_compatible.OpenAI") as client_cls:
-            from providers.openai_compatible import OpenAICompatibleProvider
+        with patch("wtp.providers.openai_compatible.OpenAI") as client_cls:
+            from wtp.providers.openai_compatible import OpenAICompatibleProvider
             create = client_cls.return_value.chat.completions.create
             create.return_value = self.reply()
             provider = OpenAICompatibleProvider(ProviderConfig("ollama", "m", "", "http://x"))
@@ -193,8 +193,8 @@ class Providers(unittest.TestCase):
         rejected = BadRequestError("response_format json_schema not supported",
                                    response=httpx.Response(400, request=httpx.Request("POST", "http://x")),
                                    body=None)
-        with patch("providers.openai_compatible.OpenAI") as client_cls:
-            from providers.openai_compatible import OpenAICompatibleProvider
+        with patch("wtp.providers.openai_compatible.OpenAI") as client_cls:
+            from wtp.providers.openai_compatible import OpenAICompatibleProvider
             create = client_cls.return_value.chat.completions.create
             create.side_effect = [rejected, self.reply('{"ok": true}')]
             provider = OpenAICompatibleProvider(ProviderConfig("groq", "m", "k", "http://x"))
@@ -282,7 +282,7 @@ class TempDir(unittest.TestCase):
 
 class EndToEnd(TempDir):
     def test_json_run_records_format_and_attempts(self):
-        with patch("main.call_model", return_value=SAMPLE_JSON_TEXT):
+        with patch("wtp.cli.call_model", return_value=SAMPLE_JSON_TEXT):
             code, result, _ = self.run_cli(["--transcript-file", str(self.transcript)])
         self.assertEqual(code, EXIT_OK)
         self.assertEqual(result["run"]["output_format"], "json")
@@ -291,28 +291,28 @@ class EndToEnd(TempDir):
         self.assertEqual(result["diagnostics"]["field_sources"]["source_type"], "llm")
 
     def test_malformed_reply_gets_a_second_attempt(self):
-        with patch("main.call_model", side_effect=["{truncated", SAMPLE_JSON_TEXT]):
+        with patch("wtp.cli.call_model", side_effect=["{truncated", SAMPLE_JSON_TEXT]):
             code, result, err = self.run_cli(["--transcript-file", str(self.transcript)])
         self.assertEqual((code, result["run"]["attempts"]["model"]), (EXIT_OK, 2))
         self.assertIn("MalformedModelOutput", err)
 
     def test_model_gives_up_after_max_attempts(self):
-        with patch("main.call_model", side_effect=HttpError(503)) as call:
+        with patch("wtp.cli.call_model", side_effect=HttpError(503)) as call:
             code, result, _ = self.run_cli(["--transcript-file", str(self.transcript)])
         self.assertEqual((code, call.call_count), (EXIT_ANALYSIS_FAILED, 3))
         self.assertIn("after 3 attempt(s)", result["error"])
         self.assertEqual(result["run"]["attempts"]["model"], 3)
 
     def test_youtube_no_captions_fails_fast(self):
-        with patch("main.get_transcript_from_url", side_effect=TranscriptsDisabled("off")) as fetch:
+        with patch("wtp.cli.get_transcript_from_url", side_effect=TranscriptsDisabled("off")) as fetch:
             code, result, _ = self.run_cli(["--url", "https://youtu.be/abc123"])
         self.assertEqual((code, fetch.call_count), (EXIT_SOURCE_FAILED, 1))
         self.assertEqual(result["run"]["attempts"], {"transcript": 1})
 
     def test_youtube_network_error_is_retried(self):
-        with patch("main.get_transcript_from_url",
+        with patch("wtp.cli.get_transcript_from_url",
                    side_effect=[YouTubeRequestFailed("502"), FULL_TRANSCRIPT]), \
-                patch("main.call_model", return_value=SAMPLE_JSON_TEXT):
+                patch("wtp.cli.call_model", return_value=SAMPLE_JSON_TEXT):
             code, result, _ = self.run_cli(["--url", "https://youtu.be/abc123"])
         self.assertEqual(code, EXIT_OK)
         self.assertEqual(result["run"]["attempts"], {"transcript": 2, "model": 1})

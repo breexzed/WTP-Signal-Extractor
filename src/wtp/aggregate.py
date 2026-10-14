@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from typing import Any
 
-from diagnostics import aggregate_named_entities, most_common_phase
+from wtp.diagnostics import aggregate_named_entities, most_common_phase
 
 STRENGTH_RANK = {"low": 0, "medium": 1, "high": 2}
 

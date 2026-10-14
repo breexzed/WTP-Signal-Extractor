@@ -12,3 +12,4 @@ outputs/
 reports/
 .uv-cache/
 tmp*/
+dist/

@@ -4,7 +4,7 @@ import re
 from collections import Counter, defaultdict
 from typing import Any
 
-from schemas import (
+from wtp.schemas import (
     CONFIDENCE_VALUES,
     DEPENDENCY_TYPE_VALUES,
     ENTITY_KIND_VALUES,

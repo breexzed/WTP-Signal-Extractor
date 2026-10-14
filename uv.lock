@@ -572,8 +572,8 @@ wheels = [
 
 [[package]]
 name = "wtp-signal-extractor"
-version = "0.4.0"
-source = { virtual = "." }
+version = "0.5.0"
+source = { editable = "." }
 dependencies = [
     { name = "google-genai" },
     { name = "openai" },

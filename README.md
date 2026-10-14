@@ -8,7 +8,7 @@ judgment is labelled with where it came from. It's built for an AI agent to run 
 is also why it's pleasant for a person to run.
 
 ```console
-$ uv run python main.py --replay raw.txt --transcript-file transcript.txt --json \
+$ wtp --replay raw.txt --transcript-file transcript.txt --json \
     | jq -c '{status, evidence: .evidence | {total, verified, approximate, stitched, not_found}}'
 {"status":"ok","evidence":{"total":13,"verified":10,"approximate":1,"stitched":2,"not_found":0}}
 ```
@@ -47,21 +47,31 @@ files it writes and the docs. Each of those is designed so an agent never has to
 | **Trust signals** | Quotes are graded against the transcript (`verified` / `approximate` / `stitched` / `not_found`). Each diagnostic says whether the `llm` or a `heuristic` produced it. `run` records model, prompt+schema hash, attempts and mode. Failures are results with an `error`, never tracebacks. |
 | **Domain knowledge** | `--describe` prints the whole contract as JSON: flags, exit codes, every allowed value, every field, the FGP phases, gatekeeper types and registers. [AGENTS.md](AGENTS.md) is the operating manual. |
 
-## Quickstart
+## Install
+
+Needs [uv](https://docs.astral.sh/uv/) (it fetches Python 3.14 if you don't have it).
 
 ```bash
-uv sync
-echo 'GEMINI_API_KEY=...' > .env        # or LLM_PROVIDER=openai_compatible + key + base URL
-uv run python main.py --check           # config OK? (JSON, no network)
+uv tool install git+https://github.com/breexzed/WTP-Signal-Extractor@v0.5.0
+mkdir -p ~/.config/wtp && echo 'GEMINI_API_KEY=...' >> ~/.config/wtp/.env   # or any provider below
+wtp --check              # config OK? (JSON, no network)
+wtp --check-update       # newer release on GitHub? (exit 1 = yes)
+wtp --self-update        # install it
+```
 
-uv run python main.py --url "https://youtu.be/VIDEO_ID"           # human report
-uv run python main.py --transcript-file interview.txt --json      # JSON on stdout
-uv run python main.py --session manifest.json --json              # many sources + rollup
-uv run python main.py                                             # interactive (terminal only)
+Runs are saved under `~/.local/share/wtp/` (`WTP_DATA_DIR` to change, `--out-dir` per run).
+
+## Use
+
+```bash
+wtp --url "https://youtu.be/VIDEO_ID"             # human report
+wtp --transcript-file interview.txt --json        # JSON on stdout
+wtp --session manifest.json --json                # many sources + rollup
+wtp                                               # interactive (terminal only)
 ```
 
 A manifest is a list of sources (`url` or inline `transcript`) with optional Source Garden
-context. Get a full example with `uv run python main.py --describe | jq .manifest_example`.
+context. Get a full example with `wtp --describe | jq .manifest_example`.
 
 ## How it works
 
@@ -141,26 +151,29 @@ plumbing, not analysis; the quote check is what tells you.
 ## Repository
 
 ```
-main.py            CLI: inputs, run modes, exit codes, stdout/stderr discipline
-contract.py        versions, exit codes, statuses, the --describe document, domain glossary
-prompt.py          what the model should look for (not the format)
-model_output.py    JSON Schema the model must follow + adapter to internal signals
-extract.py         parser for pre-0.3 plain-text outputs (kept so old runs can be replayed)
-diagnostics.py     vocabulary normalization, heuristics, field_sources
-verify.py          quote-to-transcript matching
-retry.py           transient vs permanent errors, backoff
-aggregate.py       session rollups
-render.py          human-readable reports
-session_store.py   artifact files
-schemas.py         result skeleton and allowed values
-providers/         Gemini and OpenAI-compatible adapters
-tests/             unit, contract and end-to-end tests (no network)
-AGENTS.md          operating manual for AI agents (CLAUDE.md imports it)
+src/wtp/cli.py           CLI: inputs, run modes, exit codes, stdout/stderr discipline
+src/wtp/contract.py      versions, exit codes, statuses, the --describe document, domain glossary
+src/wtp/install.py       config/data locations, version, --check-update / --self-update
+src/wtp/prompt.py        what the model should look for (not the format)
+src/wtp/model_output.py  JSON Schema the model must follow, local validation, adapter
+src/wtp/extract.py       parser for pre-0.3 plain-text outputs (kept so old runs replay)
+src/wtp/diagnostics.py   vocabulary normalization, heuristics, field_sources
+src/wtp/verify.py        quote-to-transcript matching
+src/wtp/retry.py         transient vs permanent errors, backoff
+src/wtp/aggregate.py     session rollups
+src/wtp/render.py, session_store.py, schemas.py   reports, artifact files, result skeleton
+src/wtp/providers/       Gemini and OpenAI Chat Completions adapters
+tests/                   unit, contract, install and end-to-end tests (no network)
+.github/workflows/       ci (every push) and release (on a v* tag: test, build, install, publish)
+AGENTS.md                operating manual for AI agents (CLAUDE.md imports it)
 ```
 
 ```bash
-uv run python -m unittest discover -s tests -t .     # 70 tests, ~12 s, no network
+uv sync && uv run python -m unittest discover -s tests -t .     # 79 tests, ~13 s, no network
 ```
+
+Release: bump `version` in `pyproject.toml`, commit, `git tag vX.Y.Z && git push --tags`. CI refuses a
+tag that doesn't match the version.
 
 ## Limits
 

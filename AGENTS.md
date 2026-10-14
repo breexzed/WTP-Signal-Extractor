@@ -1,6 +1,6 @@
 # AGENTS.md — WTP Signal Extractor
 
-You (an AI agent) are the main user of this CLI. This file plus `python main.py --describe`
+You (an AI agent) are the main user of this CLI. This file plus `wtp --describe`
 is everything you need. If something you needed was missing, add it here.
 
 ## What it does
@@ -18,23 +18,25 @@ asks an LLM for two passes of market signals as **schema-enforced JSON**
 Full domain glossary (phases, gatekeeper Type1–4, registers, Source Garden): `--describe` → `domain`.
 
 ## Run it
-Run from the repo root (`.env` is read from the working directory). Use `uv run python`.
+Installed: `wtp` (from `uv tool install git+https://github.com/breexzed/WTP-Signal-Extractor@<tag>`).
+From a checkout: `uv run wtp`. Config: real env vars, then `./.env`, then `~/.config/wtp/.env`.
+Runs are saved under `~/.local/share/wtp/` unless `--out-dir`. `wtp --check` shows all of this.
 
 ```bash
-uv run python main.py --describe                          # full contract as JSON, no network
-uv run python main.py --check                             # config preflight as JSON, no network; exit 2 = fix config
-uv run python main.py --url "https://youtu.be/ID" --json  # one video
-uv run python main.py --transcript-file notes.txt --json  # a file; use '-' for stdin
-uv run python main.py --urls URL1 URL2 --json             # several videos, one session
-uv run python main.py --session manifest.json --json      # manifest (see --describe → manifest_example)
-uv run python main.py --replay raw.txt --transcript-file t.txt --json   # re-parse saved model output, no API call
+wtp --describe                          # full contract as JSON, no network
+wtp --check                             # config preflight as JSON, no network; exit 2 = fix config
+wtp --url "https://youtu.be/ID" --json  # one video
+wtp --transcript-file notes.txt --json  # a file; use '-' for stdin
+wtp --urls URL1 URL2 --json             # several videos, one session
+wtp --session manifest.json --json      # manifest (see --describe → manifest_example)
+wtp --replay raw.txt --transcript-file t.txt --json   # re-parse saved model output, no API call
 ```
 
 Rules the CLI keeps (tests enforce them, `test_agent_contract.py`):
 - With `--json`, **stdout is exactly one JSON document**. Progress and errors are on stderr.
 - It **never waits for input** unless stdin is a terminal and no input flag was given.
 - Artifacts are always written. Their paths are in `artifacts` (`json_path`, `text_path`,
-  `transcript_path`). Default dir `outputs/`; `--session` defaults to `reports/<session_id>/`;
+  `transcript_path`). Default dir `~/.local/share/wtp/runs/`; `--session` defaults to `.../sessions/<session_id>/`;
   `--out-dir` overrides.
 
 ## Read the result in this order
@@ -76,8 +78,8 @@ trust `evidence`, not the model.
 - To test a parser or diagnostics change, **replay** a saved run instead of calling the model:
   `raw_output` is inside every result JSON, the transcript is beside it.
   ```bash
-  jq -r .raw_output outputs/wtp-analysis-X.json > /tmp/raw.txt
-  uv run python main.py --replay /tmp/raw.txt --transcript-file outputs/wtp-analysis-X.transcript.txt --json
+  jq -r .raw_output ~/.local/share/wtp/runs/wtp-analysis-X.json > /tmp/raw.txt
+  wtp --replay /tmp/raw.txt --transcript-file ~/.local/share/wtp/runs/wtp-analysis-X.transcript.txt --json
   ```
 - Never print or log the contents of `.env`. `--check` reports `api_key_present`, never the key.
 
@@ -90,12 +92,13 @@ Replay of one source: ~1.4 s wall. Quote check worst case: ~0.4 s for 35 fuzzy q
 
 ## Change the code
 ```bash
-uv run python -m unittest discover -s tests -t .    # 70 tests, ~12 s, no network
+uv run python -m unittest discover -s tests -t .    # 79 tests, ~13 s, no network
 ```
 | file | role |
 |---|---|
-| `main.py` | CLI: flags, input sources, exit codes, stdout/stderr discipline |
-| `contract.py` | versions, exit codes, statuses, `--describe` document, domain glossary |
+| `src/wtp/cli.py` | CLI: flags, input sources, exit codes, stdout/stderr discipline |
+| `src/wtp/contract.py` | versions, exit codes, statuses, `--describe` document, domain glossary |
+| `src/wtp/install.py` | config/data dirs, version, `--check-update`, `--self-update` |
 | `prompt.py` | what the model should look for (format lives in the schema) |
 | `model_output.py` | JSON Schema the provider enforces; JSON → internal signal dicts |
 | `extract.py` | parser for pre-0.3 plain-text outputs, kept so old runs replay (`run.output_format`) |
