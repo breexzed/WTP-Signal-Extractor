@@ -1,7 +1,9 @@
-# wtp
+# wtp (Willingness To Pay)
 
-wtp is an open-source, agent-first CLI that reads an interview, podcast or YouTube transcript and
-tells you whether people would actually **pay**: the money they already spend, the tools they
+> **Built with Claude, for my own process.** Claude wrote the code. I designed what it does: it automates a research routine I used to do by hand in NotebookLM. I still choose every video myself.
+
+wtp is an agent-first CLI that reads an interview, podcast or YouTube transcript and
+tells you whether people would **pay**: the money they already spend, the tools they
 dropped, the workarounds they live with, and who controls their market. An LLM finds the signals;
 wtp then checks every quote against the transcript, so you know which evidence is real. Built for
 AI agents to run unattended, which is why it's pleasant for people too.
